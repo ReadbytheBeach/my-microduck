@@ -9,6 +9,8 @@ Pollen Robotics **MicroDuck**（$399 开源 RL 双足鸭子机器人）的电子
   - 插图：总体架构拓扑 / 电路框图 / 软件架构 / 机械安装
 - `sessions/` —— 讨论存档（技术论证过程 + 商业分析 + 工程答疑）
   - [Session 01 · MicroDuck 电子皮肤部署与商业分析](sessions/01-MicroDuck电子皮肤部署与商业分析.md)
+- `guides/` —— 实操手册
+  - [microduck 安装手册（DGX Spark / aarch64 实装记录）](guides/microduck安装手册.md) —— Isaac Sim 6.0.1 + Isaac Lab v3.0.0-beta2 + torch cu130 在 GB10 上的完整安装与验证流程
 
 ## 方案一句话
 
