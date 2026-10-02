@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="500" viewBox="0 0 900 500">
+<defs>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4a6fa5"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a6d3b"/></marker>
+</defs>
+<rect width="900" height="500" fill="#ffffff"/>
+<text x="450" y="40" text-anchor="middle" font-size="23" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>鸭子新皮质 v1 · 日夜节律（wake–sleep 迭代）</text>
+
+<rect x="50" y="110" width="340" height="230" rx="10" fill="#D8E4EC" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="220" y="146" text-anchor="middle" font-size="18" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>白天 · WAKE（端侧）</text>
+<text x="220" y="182" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>L1 在线预测传感流</text>
+<text x="220" y="212" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>surprise 异常检测</text>
+<text x="220" y="242" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>事件簿记录（1–5% 留存）</text>
+<text x="220" y="272" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>政策通道 shadow mode 试运行</text>
+
+<rect x="510" y="110" width="340" height="230" rx="10" fill="#E8E0D4" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="680" y="146" text-anchor="middle" font-size="18" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>夜晚 · SLEEP（DGX Spark）</text>
+<text x="680" y="182" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>重演事件簿，训练大世界模型</text>
+<text x="680" y="212" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>蒸馏出新 L1 权重</text>
+<text x="680" y="242" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>候选政策离线 rollout 评分</text>
+<text x="680" y="272" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>验签后下发，次日生效</text>
+
+<line x1="392" y1="180" x2="506" y2="180" stroke="#4a6fa5" stroke-width="2" marker-end="url(#ab)"/>
+<text x="450" y="168" text-anchor="middle" font-size="14" fill="#4a6fa5" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>同步事件簿</text>
+<line x1="508" y1="270" x2="394" y2="270" stroke="#8a6d3b" stroke-width="2" marker-end="url(#ar)"/>
+<text x="450" y="296" text-anchor="middle" font-size="14" fill="#8a6d3b" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>下发新权重 / 政策</text>
+
+<text x="450" y="410" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>亥姆霍兹机器的机器人版：醒时识别（推断），睡时生成（学习）。</text>
+<text x="450" y="448" text-anchor="middle" font-size="15" font-style="italic" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>标定是终身代谢 —— 每一次日出，鸭子都比昨天更会预测自己的世界。</text>
+</svg>

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+<defs>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5a5a5a"/></marker>
+</defs>
+<rect width="960" height="540" fill="#ffffff"/>
+<text x="480" y="40" text-anchor="middle" font-size="23" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>L1 · RSSM-mini 数据流与三个出口</text>
+
+<rect x="30" y="180" width="200" height="170" rx="10" fill="#DCE8DC" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="130" y="216" text-anchor="middle" font-size="18" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>输入</text>
+<text x="130" y="252" text-anchor="middle" font-size="14" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>85 维 obs（10–20 Hz）</text>
+<text x="130" y="282" text-anchor="middle" font-size="14" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>IMU / 关节 / 触觉</text>
+<text x="130" y="312" text-anchor="middle" font-size="14" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>tactiled · robotd</text>
+
+<rect x="320" y="160" width="270" height="210" rx="10" fill="#D8E4EC" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="455" y="196" text-anchor="middle" font-size="18" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>RSSM-mini</text>
+<text x="455" y="232" text-anchor="middle" font-size="14" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>GRU 256 + 随机状态 32 维</text>
+<text x="455" y="262" text-anchor="middle" font-size="14" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>~1.5M 参数 · INT8 ≈ 1.5 MB</text>
+<text x="455" y="292" text-anchor="middle" font-size="14" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>预测 0.5–2 s 后传感流</text>
+<text x="455" y="322" text-anchor="middle" font-size="14" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>Radxa Zero 3W CPU 可跑</text>
+
+<rect x="680" y="70" width="250" height="110" rx="10" fill="#E8E0D4" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="805" y="102" text-anchor="middle" font-size="15" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>出口 ① 异常检测</text>
+<text x="805" y="130" text-anchor="middle" font-size="12.5" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>surprise 峰值领先失衡 ≥200 ms</text>
+<text x="805" y="156" text-anchor="middle" font-size="12.5" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>（MVP 阶段一验收指标）</text>
+
+<rect x="680" y="215" width="250" height="110" rx="10" fill="#E8E0D4" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="805" y="247" text-anchor="middle" font-size="15" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>出口 ② 安全 rollout</text>
+<text x="805" y="275" text-anchor="middle" font-size="12.5" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>政策通道 shadow mode</text>
+<text x="805" y="301" text-anchor="middle" font-size="12.5" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>想象推演，不触电机</text>
+
+<rect x="680" y="360" width="250" height="110" rx="10" fill="#E8E0D4" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="805" y="392" text-anchor="middle" font-size="15" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>出口 ③ 数据分诊</text>
+<text x="805" y="420" text-anchor="middle" font-size="12.5" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>事件簿 1–5% 留存</text>
+<text x="805" y="446" text-anchor="middle" font-size="12.5" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>夜间上传 L2 训练</text>
+
+<line x1="232" y1="265" x2="316" y2="265" stroke="#5a5a5a" stroke-width="2" marker-end="url(#ag)"/>
+<path d="M 592 250 Q 640 200 676 135" fill="none" stroke="#5a5a5a" stroke-width="2" marker-end="url(#ag)"/>
+<line x1="592" y1="265" x2="676" y2="268" stroke="#5a5a5a" stroke-width="2" marker-end="url(#ag)"/>
+<path d="M 592 290 Q 640 350 676 408" fill="none" stroke="#5a5a5a" stroke-width="2" marker-end="url(#ag)"/>
+
+<text x="480" y="515" text-anchor="middle" font-size="15" font-style="italic" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>MVP = 预测自己：先学会预测自己的传感流，再谈预测世界。</text>
+</svg>
