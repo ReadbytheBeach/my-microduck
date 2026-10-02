@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="650" viewBox="0 0 900 650">
+<defs>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4a6fa5"/></marker>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a6d3b"/></marker>
+</defs>
+<rect width="900" height="650" fill="#ffffff"/>
+<text x="450" y="36" text-anchor="middle" font-size="23" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>鸭子新皮质 v1 · 分层架构</text>
+
+<rect x="220" y="60" width="460" height="110" rx="10" fill="#E4DCE8" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="450" y="92" text-anchor="middle" font-size="18" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>L3 · 云 LLM（按需）</text>
+<text x="450" y="122" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>开放世界语义 / 任务规划</text>
+<text x="450" y="148" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>只在事件簿无法解释时召唤</text>
+
+<rect x="220" y="200" width="460" height="110" rx="10" fill="#E8E0D4" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="450" y="232" text-anchor="middle" font-size="18" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>L2 · DGX Spark 大世界模型（夜间）</text>
+<text x="450" y="262" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>离线训练 / 蒸馏 / 重演事件簿</text>
+<text x="450" y="288" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>产出新 L1 权重与政策候选</text>
+
+<rect x="220" y="340" width="460" height="110" rx="10" fill="#D8E4EC" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="450" y="372" text-anchor="middle" font-size="18" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>L1 · 端侧小世界模型 RSSM-mini（10–20 Hz）</text>
+<text x="450" y="402" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>GRU 256 + 随机状态 32 维，~1.5M 参数 INT8</text>
+<text x="450" y="428" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>预测 0.5–2 s 后的 85 维传感流</text>
+
+<rect x="220" y="480" width="460" height="110" rx="10" fill="#DCE8DC" stroke="#5a5a5a" stroke-width="1.5"/>
+<text x="450" y="512" text-anchor="middle" font-size="18" font-weight="bold" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>L0 · 反射层 robotd（50 Hz，硬实时）</text>
+<text x="450" y="542" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>关节限位 / 跌落保护 / 急停</text>
+<text x="450" y="568" text-anchor="middle" font-size="15" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>永远在线，永不被上层替换</text>
+
+<line x1="290" y1="476" x2="290" y2="454" stroke="#4a6fa5" stroke-width="2" marker-end="url(#ab)"/>
+<line x1="290" y1="336" x2="290" y2="314" stroke="#4a6fa5" stroke-width="2" marker-end="url(#ab)"/>
+<line x1="290" y1="196" x2="290" y2="174" stroke="#4a6fa5" stroke-width="2" marker-end="url(#ab)"/>
+<text x="188" y="325" text-anchor="middle" font-size="14" fill="#4a6fa5" transform="rotate(-90 188 325)" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>上行：事件簿 · 异常 · 分诊数据</text>
+
+<line x1="610" y1="174" x2="610" y2="196" stroke="#8a6d3b" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="610" y1="314" x2="610" y2="336" stroke="#8a6d3b" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="610" y1="454" x2="610" y2="476" stroke="#8a6d3b" stroke-width="2" marker-end="url(#ar)"/>
+<text x="712" y="325" text-anchor="middle" font-size="14" fill="#8a6d3b" transform="rotate(-90 712 325)" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>下行：权重 · 政策候选（验签 + shadow mode）</text>
+
+<text x="450" y="625" text-anchor="middle" font-size="14" font-style="italic" fill="#333333" font-family='PingFang SC,Microsoft YaHei,Noto Sans CJK SC,Hiragino Sans GB,sans-serif'>原则：包裹不替换 —— 上层缺席时下层独立生存；故障沿 L3→L2→L1→L0 逐级降级</text>
+</svg>
