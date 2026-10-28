@@ -73,6 +73,16 @@ def _wait_response(
                 return payload
             if not wait_result and status == "applied":
                 return payload
+        meta = _load_meta(sdir)
+        if meta is not None and meta.get("state") in ("exited", "cancelled"):
+            return {
+                "request_id": request_id,
+                "status": "failed",
+                "reason": (
+                    f"session is {meta['state']}; the playback process has ended. "
+                    "Start a new session with: mdctl session start"
+                ),
+            }
         time.sleep(0.05)
     return seen or {
         "request_id": request_id,
@@ -90,6 +100,17 @@ def _require_session(name: str, sessions_root: Path) -> tuple[Path, dict]:
     meta = _load_meta(sdir)
     if meta is None:
         raise SystemExit(f"session {name!r} not found under {sessions_root}; start it first")
+    return sdir, meta
+
+
+def _require_live_session(name: str, sessions_root: Path) -> tuple[Path, dict]:
+    sdir, meta = _require_session(name, sessions_root)
+    state = meta.get("state")
+    if state in ("exited", "cancelled"):
+        raise SystemExit(
+            f"session {name!r} is {state} (playback ended, e.g. step budget spent); "
+            f"start a new one: mdctl session start --backend {meta.get('backend', 'stub')} --name {name}"
+        )
     return sdir, meta
 
 
@@ -227,7 +248,7 @@ def cmd_skills_list(args) -> dict:
 
 
 def cmd_skill_run(args) -> dict:
-    sdir, meta = _require_session(args.session, args.sessions_root)
+    sdir, meta = _require_live_session(args.session, args.sessions_root)
     params: dict = {}
     for name in ("vx", "vy", "yaw"):
         value = getattr(args, name)
@@ -251,7 +272,7 @@ def cmd_skill_run(args) -> dict:
 
 
 def cmd_say(args) -> dict:
-    sdir, meta = _require_session(args.session, args.sessions_root)
+    sdir, meta = _require_live_session(args.session, args.sessions_root)
     text = args.text
     normalized = "".join(text.split())
     # stop is local and immediate — parsed without any LLM, sent as a stop
@@ -286,7 +307,7 @@ def cmd_say(args) -> dict:
 
 
 def cmd_skill_stop(args) -> dict:
-    sdir, meta = _require_session(args.session, args.sessions_root)
+    sdir, meta = _require_live_session(args.session, args.sessions_root)
     mode = "cancel_session" if args.cancel else ("pause_sim" if args.pause else "stop_skill")
     request_id = _write_request(sdir, {"op": "stop", "mode": mode})
     response = _wait_response(sdir, request_id, timeout_s=args.timeout)
@@ -329,7 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--backend", choices=("isaac", "stub"), default="isaac")
     start.add_argument("--scene", default="flat")
     start.add_argument("--name", default="sim01")
-    start.add_argument("--steps", type=int, default=1500)
+    start.add_argument("--steps", type=int, default=2_000_000)
     start.add_argument("--seed", type=int, default=42)
     start.add_argument("--startup-timeout", type=float, default=None)
     start.add_argument("--stub-option", action="append", nargs=2, metavar=("KEY", "VALUE"))

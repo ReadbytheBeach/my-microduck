@@ -419,6 +419,23 @@ class MdctlEndToEndTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         return json.loads(buffer.getvalue())
 
+    def test_dead_session_fails_fast(self):
+        """A request to an exited session reports the death, never hangs."""
+        root = self.tmp_path / "sessions"
+        sdir = root / "dead"
+        (sdir / "requests").mkdir(parents=True)
+        (sdir / "responses").mkdir(parents=True)
+        pcf.atomic_write_json(sdir / "session.json", {
+            "name": "dead", "backend": "stub", "state": "exited",
+        })
+        with self.assertRaises(SystemExit) as ctx:
+            mdctl.main([
+                "--sessions-root", str(root),
+                "skill", "run", "walk", "--session", "dead",
+                "--vx", "0.1", "--execute",
+            ])
+        self.assertIn("exited", str(ctx.exception))
+
     def test_full_flow_without_api_key(self):
         env = {k: v for k, v in os.environ.items()
                if not any(s in k.upper() for s in ("KEY", "TOKEN", "SECRET"))}
