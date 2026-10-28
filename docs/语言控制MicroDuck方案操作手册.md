@@ -156,7 +156,7 @@ flowchart TD
 
 ## 已知缺口
 
-- **Kimi 端点未实测**（未提供 MOONSHOT_API_KEY；live 测试 env-gated skip）。strict schema 优先+400 降级路径有单测，端点行为未验证。
+- ~~Kimi 端点未实测~~ **已实测（2026-10-28）**：默认模型从已下线的 `kimi-k2-0905-preview` 改为 `kimi-k3`（可用 `KIMI_LC_MODEL` 覆盖）；kimi-k3 仅接受 temperature=1，客户端 400 时自动降级（`KIMI_LC_TEMPERATURE` 可覆盖）。实测结果：**strict JSON Schema 支持=是**；"翻跟头"→roulade、"不要翻跟头"→stop（否定正确）、"先蹲下再站起来"→capability_gap（两技能均 registered，不放行不猜测）、"给我跳个舞"→dance_side_step（网关仍按 experimental+failed 拦截执行）。长句偶发 20s 超时（REQUEST_TIMEOUT_S，可按需调大）。密钥仅经环境变量传入，不落盘、不入账、不进子进程。
 - **velstand 站立不动吸引子**：本 Isaac 配置下不能从已稳定站立平衡起步/原地转向；会话内 站立→再行走 未验证；move_distance 仅限首命令从 step 0 起步的会话。
 - vy/yaw 纯横向/转向命令的航向证据需 trace 支持（当前保守降级 insufficient_data）。
 - M1-C 真实跨模型切换、M3 真机边界：另立项。

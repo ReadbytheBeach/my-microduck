@@ -27,7 +27,7 @@ from .proposal import ProposalError, Step, new_proposal, proposal_from_llm_paylo
 
 
 DEFAULT_BASE_URL = "https://api.moonshot.cn/v1"
-DEFAULT_MODEL = "kimi-k2-0905-preview"
+DEFAULT_MODEL = "kimi-k3"
 REQUEST_TIMEOUT_S = 20.0
 
 # Full-match whitelist: exact phrase -> (skill, params). Params are the
@@ -339,6 +339,7 @@ class KimiClient:
             else os.environ.get("KIMI_LC_API_KEY") or os.environ.get("MOONSHOT_API_KEY", "")
         )
         self.model = model or os.environ.get("KIMI_LC_MODEL") or DEFAULT_MODEL
+        self.temperature = float(os.environ.get("KIMI_LC_TEMPERATURE", "0"))
         self.timeout_s = timeout_s
         self.strict_schema_supported: bool | None = None
 
@@ -374,7 +375,7 @@ class KimiClient:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": text},
             ],
-            "temperature": 0.0,
+            "temperature": self.temperature,
         }
         if strict:
             payload["response_format"] = {
@@ -397,11 +398,18 @@ class KimiClient:
             if strict:
                 self.strict_schema_supported = True
         except ProposalError as exc:
-            if strict and exc.classification == "provider_error" and "HTTP 400" in exc.reason:
-                # Endpoint rejected strict JSON Schema: fall back to plain JSON
-                # mode. The gateway validates output independently either way.
-                self.strict_schema_supported = False
-                response = self._post(self._request_payload(text, strict=False))
+            if exc.classification == "provider_error" and "HTTP 400" in exc.reason:
+                if "temperature" in exc.reason:
+                    # Some models (e.g. kimi-k3) accept only temperature=1.
+                    self.temperature = 1.0
+                    return self.complete(text)
+                if strict:
+                    # Endpoint rejected strict JSON Schema: fall back to plain
+                    # JSON mode. The gateway validates output independently.
+                    self.strict_schema_supported = False
+                    response = self._post(self._request_payload(text, strict=False))
+                else:
+                    raise
             else:
                 raise
         try:
