@@ -146,6 +146,12 @@ def cmd_session_start(args) -> dict:
         "--steps", str(args.steps),
         "--seed", str(args.seed),
     ]
+    lease = args.streaming_lease_s
+    if lease is None:
+        # a full-speed stub outruns the 50 ms renewal loop in sim time;
+        # wall-clock writer liveness is still guarded by the file watchdog
+        lease = 3600.0 if args.backend == "stub" else 3.0
+    argv += ["--streaming-lease-s", str(lease)]
     for key, value in (args.stub_option or []):
         argv += ["--stub-option", f"{key}={value}"]
     env = {
@@ -354,6 +360,9 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--seed", type=int, default=42)
     start.add_argument("--startup-timeout", type=float, default=None)
     start.add_argument("--stub-option", action="append", nargs=2, metavar=("KEY", "VALUE"))
+    start.add_argument("--streaming-lease-s", type=float, default=None,
+                       help="sim-time lease for streaming commands "
+                            "(default: 3.0 isaac / 3600.0 stub)")
     start.set_defaults(func=cmd_session_start)
     stop = session_sub.add_parser("stop")
     stop.add_argument("--name", default="sim01")

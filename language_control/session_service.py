@@ -647,9 +647,12 @@ class SessionService:
                     )
                     self._active = None
                     if is_last:
+                        result = {"status": "applied", "command_id": command_id}
+                        motion = request.get("last_step_result")
+                        if motion is not None:
+                            result["motion_step"] = motion
                         self._write_response(request_id_a, {
-                            "status": "completed", "steps": total,
-                            "result": {"status": "applied", "command_id": command_id},
+                            "status": "completed", "steps": total, "result": result,
                         })
                     return
                 if (
@@ -674,6 +677,8 @@ class SessionService:
                 step_index=active["step_index"], command_id=command_id,
                 sim_steps_executed=result.get("sim_steps_executed"),
             )
+            if request_id in self._requests:
+                self._requests[request_id]["last_step_result"] = result
             self._active = None
             if is_last:
                 self._write_response(request_id, {
@@ -882,6 +887,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--stub-option", action="append", default=[],
                         help="key=value test-double options (control_dt, tick_sleep, ...)")
+    parser.add_argument("--streaming-lease-s", type=float, default=STREAMING_LEASE_S)
     args = parser.parse_args(argv)
     stub_options = {}
     for item in args.stub_option:
@@ -897,6 +903,7 @@ def main(argv: list[str] | None = None) -> int:
         steps=args.steps,
         seed=args.seed,
         stub_options=stub_options,
+        streaming_lease_s=args.streaming_lease_s,
     )
     return service.run()
 
