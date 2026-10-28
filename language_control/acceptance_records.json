@@ -1,0 +1,209 @@
+{
+  "schema": 1,
+  "notes": "Independent acceptance records. The registry builder derives each skill's evidence_state solely from the newest record here; without a record the state is unknown, and it can never become passed. Records are append-only: M0-B replays add new rows instead of rewriting history.",
+  "records": [
+    {
+      "skill": "dance_side_step",
+      "state": "failed",
+      "date": "2026-10-18",
+      "source": "artifacts/isaac/video-dance-hard-floor-v4/ (acceptance-{wood,marble,normal}-slope-{0,2,4}.json); work/video_dance/docs/V1-V4核心目标策略奖励观测与验收标准.md §6",
+      "scope": {
+        "sim": "isaac",
+        "terrain": "slope 0/2/4 deg x wood/marble/normal",
+        "seed": 42,
+        "envs": 1,
+        "real_robot": false
+      },
+      "summary": "Nine engineering replays completed (3 materials x 3 slopes). Median amplitude ratio 1.0269-1.0561: the motion itself did not shrink. But every 4-degree combination exceeded the 0.25 m displacement budget and normal ground regressed vs V3, so the V4 stage-1 displacement and cross-material robustness targets did NOT pass. Single seed, single env, no real robot."
+    },
+    {
+      "skill": "sitdown",
+      "state": "pending",
+      "date": "2026-10-13",
+      "source": "upstream.lock [playground_sitstand] note; reference/policies/v7/manifest.json",
+      "scope": {
+        "sim": "isaac"
+      },
+      "summary": "v7 alpha_sitstand (a6f102d9...) has not passed Isaac motion/transition checks; the playground keeps legacy c6c40e35... pinned separately. The legacy variant is registered under its own revision+hash; same-name silent swapping is forbidden."
+    },
+    {
+      "skill": "standup",
+      "state": "pending",
+      "date": "2026-10-13",
+      "source": "upstream.lock [playground_sitstand] note; reference/policies/v7/manifest.json",
+      "scope": {
+        "sim": "isaac"
+      },
+      "summary": "Same sitstand policy as sitdown: v7 alpha_sitstand pending Isaac motion/transition checks."
+    },
+    {
+      "skill": "walk",
+      "state": "passed",
+      "date": "2026-10-26",
+      "source": "M0-B research replay via language chain: work/language_control/executions/ccbba02568f143eb9f048ef0eab10d3e/playback.json (+trace.json)",
+      "scope": {
+        "adapter": "isaac_playback",
+        "task": "Isaac-MicroDuck-Velocity-Flat-Play-v0",
+        "terrain": "flat",
+        "seed": 42,
+        "num_envs": 1,
+        "command": {
+          "vx": 0.15
+        },
+        "steps": 100,
+        "real_robot": false
+      },
+      "summary": "Language chain (text -> proposal -> gateway -> adapter -> executor) launched the replay and produced verifiable output: steps/checkpoint/command all match expectations. Measured: mean planar speed 0.134 m/s against commanded vx=0.15, forward displacement 0.172 m in 2 s, done_count=0. Valid for the stated scope only; says nothing about other terrains or real-robot safety."
+    },
+    {
+      "skill": "ground_pick",
+      "state": "passed",
+      "date": "2026-10-26",
+      "source": "M0-B research replay via language chain: work/language_control/executions/9e9f87b7fdf744cfb8e7330e2f53ba78/playback.json (+trace.json)",
+      "scope": {
+        "adapter": "isaac_playback",
+        "task": "Isaac-MicroDuck-Velocity-Flat-Play-v0",
+        "terrain": "flat",
+        "seed": 42,
+        "num_envs": 1,
+        "phase_clock_s": 4.0,
+        "steps": 140,
+        "real_robot": false
+      },
+      "summary": "Phase encoding verified end-to-end: --phase-clock 4.0 with steps=140 (= period_s 4.0 x end_phase 0.7 x 50 Hz; duration_s never passed as the clock). Trace dance_phase sweeps 0.0 -> 0.695 over exactly 140 rows, done_count=0, root height recovers 0.065 -> 0.117 m. Scope-limited as above."
+    },
+    {
+      "skill": "sitdown",
+      "state": "pending",
+      "date": "2026-10-26",
+      "source": "M0-B research replay (label retained): work/language_control/executions/bed740adbc13452aa66260b5dc4fac86/playback.json",
+      "scope": {
+        "adapter": "isaac_playback",
+        "task": "Isaac-MicroDuck-Velocity-Flat-Play-v0",
+        "terrain": "flat",
+        "seed": 42,
+        "num_envs": 1,
+        "posture_flag": "sit=1.0",
+        "steps": 100,
+        "real_robot": false,
+        "research_replay": true
+      },
+      "summary": "Research replay of the pending sitstand policy: posture flag sit=1.0 delivered through the chain (command [1.0,0,0] confirmed in output). Process evidence passed, but motion semantics stay UNVERIFIED: done_count=1, min root height 0.005 m (floor contact), no evaluator to distinguish a controlled sit from a fall, and ramp/unwind reproduction by a fixed flag is unverified. Evidence state stays pending; the skill remains registered."
+    },
+    {
+      "skill": "walk",
+      "state": "passed",
+      "date": "2026-10-27",
+      "source": "M2 evaluator (language_control/evaluator.py) re-graded M0-B replay work/language_control/executions/ccbba02568f143eb9f048ef0eab10d3e + M1 session run work/language_control/sessions/m1b20",
+      "scope": {
+        "adapter": "isaac_playback/session",
+        "terrain": "flat",
+        "seed": 42,
+        "real_robot": false,
+        "evaluator": "language_control/evaluator.py"
+      },
+      "summary": "Three-layer verdict: run_state=completed, contract=verified, motion=passed (direction/speed ratio 0.896/lateral drift 0.021m/not-fallen). Level: sim_smoke_passed (single fixed condition, not generalized). M1-B session: 21s command explicitly interrupted at sim 20.0s time_out (980 steps executed), reset recorded, no silent continuation."
+    },
+    {
+      "skill": "ground_pick",
+      "state": "passed",
+      "date": "2026-10-27",
+      "source": "M2 evaluator (language_control/evaluator.py) re-graded M0-B replay work/language_control/executions/9e9f87b7fdf744cfb8e7330e2f53ba78 (+trace)",
+      "scope": {
+        "adapter": "isaac_playback",
+        "terrain": "flat",
+        "seed": 42,
+        "real_robot": false,
+        "evaluator": "language_control/evaluator.py"
+      },
+      "summary": "Phase family: unwrapped phase coverage 0.695/0.7, max joint variance 0.30 (motion present), not fallen. Level: sim_smoke_passed; says nothing about other phases/terrains."
+    },
+    {
+      "skill": "sitdown",
+      "state": "pending",
+      "date": "2026-10-27",
+      "source": "M2 verification replay work/language_control/m2_verification/sitdown.json(+trace); evaluator language_control/evaluator.py; calibration ref bed740ad",
+      "scope": {
+        "adapter": "isaac_playback",
+        "terrain": "flat",
+        "seed": 42,
+        "steps": 100,
+        "real_robot": false
+      },
+      "summary": "高度 0.116→0.06 下行后触地(done_count=1, min 0.005)再回 0.117: trace 末段含 reset 拼接,终端稳定窗口方差 1.05e-3 超标,评价器 failed(stable_terminal)。仍无法区分受控坐下与倒地+复位,保持 pending,不升级。"
+    },
+    {
+      "skill": "standup",
+      "state": "pending",
+      "date": "2026-10-27",
+      "source": "M2 verification replay work/language_control/m2_verification/standup.json(+trace); evaluator language_control/evaluator.py",
+      "scope": {
+        "adapter": "isaac_playback",
+        "terrain": "flat",
+        "seed": 42,
+        "steps": 100,
+        "real_robot": false
+      },
+      "summary": "回放从站立初始位姿出发(0.116→0.117),direction 检查正确判 False: 固定 posture_flag 回放不构成起立动作证据。保持 pending;真实起立验证需从坐姿出发的会话编排(M1-C 之后)。"
+    },
+    {
+      "skill": "roulade",
+      "state": "pending",
+      "date": "2026-10-27",
+      "source": "M2 verification replay work/language_control/m2_verification/roulade.json(+trace); evaluator language_control/evaluator.py",
+      "scope": {
+        "adapter": "isaac_playback",
+        "terrain": "flat",
+        "seed": 42,
+        "steps": 50,
+        "real_robot": false
+      },
+      "summary": "真实旋转过程确认: 1s 内前向翻滚 0.762 圈(非仅末帧站立)。但 done_count=4(50 步内 4 次终止),评价器 process_only: 不得称无重置连续执行。evidence unknown->pending,不升级 available。"
+    },
+    {
+      "skill": "kick_left",
+      "state": "passed",
+      "date": "2026-10-27",
+      "source": "M2 verification replay work/language_control/m2_verification/kick_left.json(+trace); evaluator language_control/evaluator.py",
+      "scope": {
+        "adapter": "isaac_playback",
+        "terrain": "flat",
+        "seed": 42,
+        "steps": 25,
+        "real_robot": false,
+        "level": "sim_smoke_passed"
+      },
+      "summary": "指定腿(左)抬脚峰值 0.0247m,超阈值 0.017m(标定: 1.5x M0-B walk 步态峰值 0.0111m,标定/验收样本分开),右脚峰值 0.0015m 未抬;done_count=0。单次固定条件 sim_smoke_passed,不泛化。"
+    },
+    {
+      "skill": "kick_right",
+      "state": "passed",
+      "date": "2026-10-27",
+      "source": "M2 verification replay work/language_control/m2_verification/kick_right.json(+trace); evaluator language_control/evaluator.py",
+      "scope": {
+        "adapter": "isaac_playback",
+        "terrain": "flat",
+        "seed": 42,
+        "steps": 25,
+        "real_robot": false,
+        "level": "sim_smoke_passed"
+      },
+      "summary": "指定腿(右)抬脚峰值 0.0291m 超阈值,左脚 0.0098m 未抬;done_count=0。sim_smoke_passed,不泛化。"
+    },
+    {
+      "skill": "walk",
+      "state": "passed",
+      "date": "2026-10-27",
+      "source": "M1 闭环 move_distance 真实 Isaac: work/language_control/sessions/m1cl5 (driver log work/language_control/m1cl5_driver.log)",
+      "scope": {
+        "adapter": "session_service+closed_loop",
+        "terrain": "flat",
+        "seed": 42,
+        "real_robot": false,
+        "level": "sim_smoke_passed",
+        "position_source": "sim_ground_truth"
+      },
+      "summary": "move_distance 0.3m 闭环(sim_ground_truth 反馈, 全程巡航 0.15 m/s): 完成于 3.32 sim-s, 终点误差 0.0077m, 横向误差 0.025m, 航向漂移 -2.4°。首命令 hold-at-start 后从 step 0 行走。单次固定条件,不泛化。"
+    }
+  ]
+}

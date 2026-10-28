@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import importlib.metadata as metadata
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -32,6 +34,7 @@ DEFAULT_OUTPUT = PROJECT_ROOT / "artifacts/isaac/velocity_playback.json"
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--checkpoint", type=Path, default=None)
 parser.add_argument("--policy-onnx", type=Path, default=None)
+parser.add_argument("--robot-usd", type=Path, default=None)
 parser.add_argument("--unclipped-actions", action="store_true")
 parser.add_argument("--full-roll-v2", action="store_true")
 parser.add_argument("--trace", type=Path, default=None)
@@ -57,12 +60,36 @@ parser.add_argument("--video-height", type=int, default=1080)
 parser.add_argument("--command-vx", type=float, default=None)
 parser.add_argument("--command-vy", type=float, default=None)
 parser.add_argument("--command-yaw", type=float, default=None)
+parser.add_argument(
+    "--phase-clock",
+    type=float,
+    default=None,
+    help="Drive the twist command slot with [cos(2πφ), sin(2πφ), 0], φ advancing at this period (s). For phase-clocked policies such as dance.",
+)
+parser.add_argument("--slope-deg", type=float, default=None)
+parser.add_argument("--slope-azimuth-deg", type=float, default=None)
+parser.add_argument("--terrain-friction", type=float, default=None)
+parser.add_argument("--terrain-roughness", type=float, default=None)
 parser.add_argument("--completion-file", type=Path, default=None, help=argparse.SUPPRESS)
+# M1-A persistent-session mode (all four required together). Absent these
+# flags the script behaves exactly as the M0 fixed-command path.
+parser.add_argument("--command-file", type=Path, default=None)
+parser.add_argument("--status-file", type=Path, default=None)
+parser.add_argument("--ack-file", type=Path, default=None)
+parser.add_argument("--session-id", type=str, default=None)
+parser.add_argument("--session-epoch", type=int, default=1)
+parser.add_argument("--command-watchdog-s", type=float, default=5.0)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
 if args_cli.num_envs <= 0:
     parser.error("--num-envs must be positive")
+if args_cli.slope_deg is not None and not 0.0 <= args_cli.slope_deg <= 4.0:
+    parser.error("--slope-deg must be between 0 and 4")
+if args_cli.terrain_roughness is not None and not 0.0 <= args_cli.terrain_roughness <= 0.005:
+    parser.error("--terrain-roughness must be between 0 and 0.005")
+if args_cli.terrain_friction is not None and args_cli.terrain_friction <= 0:
+    parser.error("--terrain-friction must be positive")
 if args_cli.policy_onnx is not None and args_cli.checkpoint is not None:
     parser.error("Choose either --policy-onnx or --checkpoint")
 if args_cli.full_roll_v2 and args_cli.profile != "continuous_roll":
@@ -83,6 +110,20 @@ if args_cli.video_width <= 0 or args_cli.video_height <= 0:
     parser.error("--video-width and --video-height must be positive")
 if args_cli.screenshot is not None or args_cli.video is not None:
     args_cli.enable_cameras = True
+
+session_args = (args_cli.command_file, args_cli.status_file, args_cli.ack_file, args_cli.session_id)
+if any(value is not None for value in session_args):
+    if not all(value is not None for value in session_args):
+        parser.error("--command-file/--status-file/--ack-file/--session-id must be given together")
+    if args_cli.session_epoch < 1:
+        parser.error("--session-epoch must be positive")
+    if args_cli.command_watchdog_s <= 0:
+        parser.error("--command-watchdog-s must be positive")
+    if args_cli.phase_clock is not None or any(
+        value is not None
+        for value in (args_cli.command_vx, args_cli.command_vy, args_cli.command_yaw)
+    ):
+        parser.error("session mode (--command-file) excludes --command-vx/vy/yaw/--phase-clock")
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -122,6 +163,15 @@ def main() -> int:
     import torch
     from packaging import version
     from rsl_rl.runners import OnPolicyRunner
+    from velocity_trace import (
+        ANKLE_BODY_NAMES,
+        FOOT_LOAD_THRESHOLD_N,
+        FOOT_SENSOR_NAMES,
+        TRACE_FEET_NAMES,
+        foot_load_mask,
+        foot_site_kinematics,
+        latest_net_foot_forces,
+    )
 
     from isaaclab_rl.rsl_rl import (
         RslRlVecEnvWrapper,
@@ -175,6 +225,34 @@ def main() -> int:
         from microduck_isaac_lab.tasks.velocity.full_roll_env_cfg import FullRollEnvCfg_PLAY
         env_cfg = FullRollEnvCfg_PLAY()
         agent_cfg.clip_actions = None
+    if args_cli.robot_usd is not None:
+        env_cfg.scene.robot.spawn.usd_path = str(
+            args_cli.robot_usd.expanduser().resolve()
+        )
+    robot_usd = Path(env_cfg.scene.robot.spawn.usd_path).expanduser().resolve()
+    if not robot_usd.is_file():
+        raise FileNotFoundError(robot_usd)
+    robot_usd_sha256 = hashlib.sha256(robot_usd.read_bytes()).hexdigest()
+    if any(
+        value is not None
+        for value in (
+            args_cli.slope_deg,
+            args_cli.slope_azimuth_deg,
+            args_cli.terrain_friction,
+            args_cli.terrain_roughness,
+        )
+    ):
+        from microduck_isaac_lab.tasks.velocity.dance_slope_terrain import (
+            make_dance_slope_terrain_importer_cfg,
+        )
+        env_cfg.scene.terrain = make_dance_slope_terrain_importer_cfg(
+            play=True,
+            slope_deg=args_cli.slope_deg,
+            azimuth_deg=args_cli.slope_azimuth_deg,
+            friction=args_cli.terrain_friction or 1.0,
+            roughness=args_cli.terrain_roughness,
+        )
+        env_cfg.sim.physics_material = env_cfg.scene.terrain.physics_material
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.sim.device = args_cli.device
     env_cfg.seed = agent_cfg.seed
@@ -225,7 +303,7 @@ def main() -> int:
 
     env = None
     video_process = None
-    fixed_command = any(
+    fixed_command = args_cli.phase_clock is not None or any(
         value is not None
         for value in (args_cli.command_vx, args_cli.command_vy, args_cli.command_yaw)
     )
@@ -234,6 +312,12 @@ def main() -> int:
         float(args_cli.command_vy or 0.0),
         float(args_cli.command_yaw or 0.0),
     )
+    session_mode = args_cli.command_file is not None
+    session_feed = None
+    if session_mode:
+        from playback_command_feed import CommandFeed, write_status
+
+        policy_sha256 = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
 
     def camera_rgb(playback_camera):
         frame = playback_camera.data.output["rgb"]
@@ -283,25 +367,76 @@ def main() -> int:
             )
 
         update_camera_pose()
-        for sensor_name, expected_body in (
-            ("left_foot_contact", "ankle_left"),
-            ("right_foot_contact", "ankle_right"),
+        contact_sensors = []
+        for sensor_name, expected_body in zip(
+            FOOT_SENSOR_NAMES, ANKLE_BODY_NAMES, strict=True
         ):
             sensor = env.unwrapped.scene.sensors[sensor_name]
             if sensor.num_sensors != 1 or sensor.body_names != [expected_body]:
                 raise RuntimeError(
                     f"{sensor_name} did not resolve exactly one {expected_body} body"
                 )
+            contact_sensors.append(sensor)
+
+        robot = env.unwrapped.scene["robot"]
+        ankle_body_ids = [robot.body_names.index(name) for name in ANKLE_BODY_NAMES]
+
+        def read_foot_trace() -> dict[str, object]:
+            foot_position, foot_linear_velocity = foot_site_kinematics(
+                robot.data.body_pos_w.torch[:, ankle_body_ids, :],
+                robot.data.body_quat_w.torch[:, ankle_body_ids, :],
+                robot.data.body_com_pos_w.torch[:, ankle_body_ids, :],
+                robot.data.body_lin_vel_w.torch[:, ankle_body_ids, :],
+                robot.data.body_ang_vel_w.torch[:, ankle_body_ids, :],
+            )
+            foot_force = latest_net_foot_forces(
+                [
+                    sensor.data.net_forces_w_history.torch
+                    for sensor in contact_sensors
+                ]
+            )
+            return {
+                "foot_position": foot_position.cpu().tolist(),
+                "foot_linear_velocity": foot_linear_velocity.cpu().tolist(),
+                "foot_force": foot_force.cpu().tolist(),
+                "foot_loaded": foot_load_mask(foot_force).cpu().tolist(),
+            }
 
         command_term = env.unwrapped.command_manager.get_term("base_velocity")
+        control_dt = env.unwrapped.step_dt
+        phase_clock_step = 0
 
         def apply_fixed_command() -> None:
-            if fixed_command:
+            nonlocal phase_clock_step
+            if args_cli.phase_clock is not None:
+                angle = (
+                    2.0
+                    * math.pi
+                    * ((phase_clock_step * control_dt) % args_cli.phase_clock)
+                    / args_cli.phase_clock
+                )
+                command_term.vel_command_b[:, 0] = math.cos(angle)
+                command_term.vel_command_b[:, 1] = math.sin(angle)
+                command_term.vel_command_b[:, 2] = 0.0
+                phase_clock_step += 1
+                # Phase-clocked policies were trained with zero head/body slots.
+                for name in ("head_pose", "body_pose"):
+                    env.unwrapped.command_manager.get_term(name).command[:] = 0.0
+            elif fixed_command:
                 command_term.vel_command_b[:, 0] = command[0]
                 command_term.vel_command_b[:, 1] = command[1]
                 command_term.vel_command_b[:, 2] = command[2]
 
         apply_fixed_command()
+        if session_mode:
+            session_feed = CommandFeed(
+                args_cli.command_file,
+                session_id=args_cli.session_id,
+                session_epoch=args_cli.session_epoch,
+                control_dt_s=control_dt,
+                ack_path=args_cli.ack_file,
+                watchdog_wall_s=args_cli.command_watchdog_s,
+            )
         env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
         if args_cli.policy_onnx:
             import onnxruntime as ort
@@ -381,6 +516,7 @@ def main() -> int:
         done_count = 0
         min_root_height = math.inf
         max_root_height = -math.inf
+        session_started = session_feed is None  # fixed path: no hold gate
         planar_speed_sum = 0.0
         max_planar_speed = 0.0
         positive_pitch_rotation = torch.zeros(
@@ -393,24 +529,119 @@ def main() -> int:
         )
         previous_root_xy = initial_root_xy.clone()
         accumulated_root_delta_xy = torch.zeros_like(initial_root_xy)
+        session_episode_id = 0
+        session_cancelled = False
+
+        def write_session_status(sim_step: int) -> None:
+            robot_data = env.unwrapped.scene["robot"].data
+            run_state = session_feed.run_state
+            if not session_started and not session_feed.cancel_requested:
+                run_state = "waiting_first_command"
+            write_status(args_cli.status_file, {
+                "protocol_version": 1,
+                "session_id": args_cli.session_id,
+                "session_epoch": args_cli.session_epoch,
+                "sim_step": sim_step,
+                "sim_time_s": sim_step * control_dt_s,
+                "episode_id": session_episode_id,
+                "run_state": run_state,
+                "fault_reason": session_feed.fault,
+                "applied_command_id": session_feed.applied_command_id,
+                "policy_sha256": policy_sha256,
+                "current_velocity": list(session_feed.current_velocity()),
+                "root_position_w": robot_data.root_pos_w.torch[0].cpu().tolist(),
+                "root_quat_w": robot_data.root_quat_w.torch[0].cpu().tolist(),
+                "root_lin_vel_b": robot_data.root_lin_vel_b.torch[0].cpu().tolist(),
+                "root_ang_vel_b": robot_data.root_ang_vel_b.torch[0].cpu().tolist(),
+                "done_count": done_count,
+                "reset_reason": session_feed.reset_reason,
+                "wall_updated_at": time.time(),
+            })
+
         with torch.inference_mode():
+            if session_feed is not None:
+                # Hold at step 0 until the first command arrives: velstand in
+                # this env cannot leave the settled standing equilibrium, so
+                # the first motion command must be present from step 0 (real
+                # Isaac finding, 2026-10-27). Cancel still works while held;
+                # a wall-clock timeout prevents a zombie hold.
+                hold_deadline = time.monotonic() + 180.0
+                while not session_started:
+                    session_feed.poll(sim_step=0)
+                    write_session_status(0)
+                    if session_feed.applied_command_id is not None:
+                        session_started = True
+                        break
+                    if session_feed.cancel_requested:
+                        session_cancelled = True
+                        break
+                    if time.monotonic() > hold_deadline:
+                        print("MICRODUCK_PLAYBACK_STAGE=hold-timeout", flush=True)
+                        break
+                if session_cancelled or not session_started:
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    output.write_text(json.dumps({
+                        "task": task_id, "session_id": args_cli.session_id,
+                        "cancelled": session_cancelled, "steps_executed": 0,
+                        "note": "session ended during hold (no first command)",
+                    }, indent=2) + "\n", encoding="utf-8")
+                    print("MICRODUCK_PLAYBACK_STAGE=complete", flush=True)
+                    return 0
             for step in range(args_cli.steps):
                 update_camera_pose()
-                if fixed_command:
+                if session_feed is not None:
+                    session_feed.poll(sim_step=step)
+                    while session_feed.paused and not session_feed.cancel_requested:
+                        write_session_status(step)
+                        time.sleep(0.01)
+                        session_feed.poll(sim_step=step)
+                    if session_feed.cancel_requested:
+                        session_cancelled = True
+                        write_session_status(step)
+                        print("MICRODUCK_PLAYBACK_STAGE=session-cancelled", flush=True)
+                        break
+                    vx, vy, yaw = session_feed.current_velocity()
+                    command_term.vel_command_b[:, 0] = vx
+                    command_term.vel_command_b[:, 1] = vy
+                    command_term.vel_command_b[:, 2] = yaw
+                    obs = env.get_observations()
+                elif fixed_command:
                     apply_fixed_command()
                     obs = env.get_observations()
                 actions = policy(obs)
+                if session_feed is not None and step % 50 == 0 and os.environ.get("MICRODUCK_DEBUG_OBS"):
+                    pol = obs["policy"].detach().cpu().numpy()[0]
+                    print(
+                        f"DBG step={step} vel_cmd={command_term.vel_command_b[0].tolist()} "
+                        f"obs48_60={[round(float(v),3) for v in pol[48:61]]}",
+                        flush=True,
+                    )
+                    if step == 100:
+                        print("DBGFULL " + json.dumps([round(float(v), 4) for v in pol]), flush=True)
                 action_max = max(action_max, float(actions.abs().max().item()))
                 actions_above_one += int((actions.abs() > 1.0).sum().item())
                 if not bool(torch.isfinite(actions).all()):
                     raise FloatingPointError(f"Non-finite action at step {step}")
-                obs, rewards, dones, _ = env.step(actions)
+                obs, rewards, dones, extras = env.step(actions)
                 if not bool(torch.isfinite(rewards).all()):
                     raise FloatingPointError(f"Non-finite reward at step {step}")
                 if not all(bool(torch.isfinite(value).all()) for value in obs.values()):
                     raise FloatingPointError(f"Non-finite observation at step {step}")
                 reward_sum += float(rewards.sum().item())
                 done_count += int(dones.sum().item())
+                if session_feed is not None and bool(dones.any()):
+                    session_episode_id += 1
+                    time_outs = extras.get("time_outs") if isinstance(extras, dict) else None
+                    reset_reason = (
+                        "time_out"
+                        if time_outs is not None and bool(time_outs.any())
+                        else "termination"
+                    )
+                    session_feed.on_episode_reset(
+                        session_episode_id, reset_reason, step + 1, (step + 1) * control_dt_s
+                    )
+                if session_feed is not None:
+                    write_session_status(step + 1)
                 turn_counter.update(
                     env.unwrapped.scene["robot"].data.projected_gravity_b.torch,
                     dones.bool(),
@@ -421,12 +652,20 @@ def main() -> int:
                 if args_cli.trace:
                     trace_rows.append({
                         "step": step,
+                        "dt_s": control_dt_s,
                         "phase": turn_counter.phase.cpu().tolist(),
                         "net_phase": turn_counter.net.cpu().tolist(),
                         "turns": turn_counter.total_turns.cpu().tolist(),
                         "done": dones.cpu().tolist(),
+                        "dance_phase": (
+                            None
+                            if args_cli.phase_clock is None
+                            else ((step * control_dt_s) % args_cli.phase_clock) / args_cli.phase_clock
+                        ),
                         "gravity_body": env.unwrapped.scene["robot"].data.projected_gravity_b.torch.cpu().tolist(),
                         "root_position": env.unwrapped.scene["robot"].data.root_pos_w.torch.cpu().tolist(),
+                        "joint_position": env.unwrapped.scene["robot"].data.joint_pos.torch.cpu().tolist(),
+                        **read_foot_trace(),
                     })
                 root_height = env.unwrapped.scene["robot"].data.root_pos_w.torch[:, 2]
                 min_root_height = min(min_root_height, float(root_height.min().item()))
@@ -531,6 +770,8 @@ def main() -> int:
             "task": task_id,
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "checkpoint": str(checkpoint),
+            "robot_usd": str(robot_usd),
+            "robot_usd_sha256": robot_usd_sha256,
             "profile": args_cli.profile,
             "full_roll_v2": args_cli.full_roll_v2,
             "clip_actions": agent_cfg.clip_actions,
@@ -550,7 +791,27 @@ def main() -> int:
             "sustained_roll_passed": bool((turn_counter.max_consecutive >= 3).all()) and done_count == 0 and max(maximum_turn_gaps) <= 3.0,
             "num_envs": args_cli.num_envs,
             "steps": args_cli.steps,
+            "trace_feet_names": TRACE_FEET_NAMES,
+            "trace_contact_threshold_n": FOOT_LOAD_THRESHOLD_N,
+            "terrain": {
+                "slope_deg": args_cli.slope_deg,
+                "slope_azimuth_deg": args_cli.slope_azimuth_deg,
+                "friction": args_cli.terrain_friction,
+                "roughness": args_cli.terrain_roughness,
+            },
             "command": command if fixed_command else None,
+            "session": (
+                None
+                if not session_mode
+                else {
+                    "session_id": args_cli.session_id,
+                    "session_epoch": args_cli.session_epoch,
+                    "policy_sha256": policy_sha256,
+                    "cancelled": session_cancelled,
+                    "episode_id": session_episode_id,
+                    "results": session_feed.results if session_feed is not None else {},
+                }
+            ),
             "device": agent_cfg.device,
             "rsl_rl_version": installed_rsl_rl,
             "mean_reward_per_env_step": reward_sum
@@ -577,6 +838,8 @@ def main() -> int:
             "screenshot": screenshot_info,
             "video": video_info,
         }
+        if args_cli.trace:
+            summary["trace_joint_names"] = list(env.unwrapped.scene["robot"].joint_names)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         if args_cli.trace:
