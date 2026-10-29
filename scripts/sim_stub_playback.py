@@ -40,6 +40,9 @@ def main() -> int:
                         help="if >0, force a time_out reset every N steps")
     parser.add_argument("--reject-vx", type=float, default=None,
                         help="test hook: reject velocity_setpoint whose vx matches")
+    parser.add_argument("--freeze", type=float, default=0.0,
+                        help="test hook: if nonzero, command applies but the body "
+                             "never moves (standing-still attractor)")
     parser.add_argument("--policy-sha256", default="0" * 64)
     parser.add_argument("--watchdog-s", type=float, default=5.0)
     parser.add_argument("--output", type=Path, default=None)
@@ -155,10 +158,14 @@ def main() -> int:
         velocity = feed.current_velocity()
         # planar motion in the current heading; yaw integrates yaw_rate
         import math as _math
-        position[0] += velocity[0] * _math.cos(yaw) * args.control_dt
-        position[1] += velocity[0] * _math.sin(yaw) * args.control_dt
-        position[1] += velocity[1] * args.control_dt
-        yaw += velocity[2] * args.control_dt
+        if args.freeze:
+            effective = (0.0, 0.0, 0.0)  # attractor: command applied, no motion
+        else:
+            effective = velocity
+        position[0] += effective[0] * _math.cos(yaw) * args.control_dt
+        position[1] += effective[0] * _math.sin(yaw) * args.control_dt
+        position[1] += effective[1] * args.control_dt
+        yaw += effective[2] * args.control_dt
         step += 1
         if args.episode_steps > 0 and step % args.episode_steps == 0 and step < args.steps:
             episode_id += 1
@@ -181,7 +188,7 @@ def main() -> int:
             "current_velocity": list(velocity),
             "root_position_w": list(position),
             "root_quat_w": quat,
-            "root_lin_vel_b": [velocity[0], velocity[1], 0.0],
+            "root_lin_vel_b": [effective[0], effective[1], 0.0],
             "done_count": done_count,
             "reset_reason": feed.reset_reason,
             "wall_updated_at": time.time(),

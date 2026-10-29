@@ -184,6 +184,19 @@ class ClosedLoopStubSessionTests(unittest.TestCase):
             self.assertEqual(response["status"], "rejected")
             self.assertEqual(response["classification"], "capability_gap")
 
+    def test_frozen_body_timeout_returns_terminal_response(self):
+        """吸引子场景：指令已应用但机体不动 → 闭环超时必须返回 failed，
+        不得让等待方永远挂起（回归：closed_loop_end 失败分支曾先清
+        _active，导致响应永远不写）。"""
+        with StubSession(self.tmp_path, name="frz", streaming_lease_s=3600.0,
+                         stub_options={"tick_sleep": 0.01, "freeze": 1}) as session:
+            response = session.request({
+                "op": "run",
+                "steps": [{"skill": "walk", "params": {"distance_m": 0.3}}],
+            }, timeout=60.0)
+            self.assertEqual(response["status"], "failed")
+            self.assertIn("closed-loop", response["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

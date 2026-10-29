@@ -295,6 +295,7 @@ class SessionService:
                 ("episode_steps", "--episode-steps"),
                 ("reject_vx", "--reject-vx"),
                 ("watchdog_s", "--watchdog-s"),
+                ("freeze", "--freeze"),
             ):
                 if key in self.stub_options:
                     value = self.stub_options[key]
@@ -507,8 +508,8 @@ class SessionService:
                 "sequence", request_id=request_id, event="closed_loop_end",
                 step_index=active["step_index"], result=final,
             )
-            self._active = None
             if final["status"] == closed_loop.DONE:
+                self._active = None
                 if is_last:
                     self._write_response(request_id, {
                         "status": "completed", "result": final,
@@ -519,6 +520,7 @@ class SessionService:
                         "note": "closed-loop step done; next step follows",
                     })
             else:
+                # keep _active set so the failure response reaches the waiter
                 self._fail_active_and_queue(
                     "failed",
                     f"closed-loop {final['status']}: {final}",
