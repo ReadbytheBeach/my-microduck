@@ -23,6 +23,35 @@
 7. **本地 ONNX 策略**（`reference/policies/v7/`）——真正的"小脑"：一个 61 维输入、14 维输出的神经网络，每个控制步算出 14 个关节的目标位置。走路的 velstand、坐下的 sitstand、翻跟头的 roulade 都是各自独立的官方策略文件，每个都有 SHA-256 哈希锁定。
 8. **哈希链账本**（`work/language_control/events.jsonl`）——你说的每句话、解析结果、网关判定、每条指令的送达确认、执行结果，全部追加进一个带哈希链的日志文件，事后可以逐条审计、防篡改。
 
+## 网关的规则（细则）
+
+网关的规则不是写死在代码里的魔法数，它由**三份受控数据 + 一段纯判定代码**组成。
+
+### 规则从哪来：三份数据来源
+
+| 来源 | 回答的问题 | 内容 | 能否手改 |
+|---|---|---|---|
+| 上游官方清单 `reference/policies/v7/manifest.json` + `upstream.lock` | 这个技能**是什么** | 模型文件、SHA-256、指令编码、时长、训练溯源 | 不能——改了哈希就对不上 |
+| 本地技能配置 `language_control/local_skills.json` | 我们打算**怎么调它** | 技能别名、参数限值、前置条件 | 能，但限值必须标注来源 |
+| 独立验收记录 `language_control/acceptance_records.json` | 它在什么条件下**被验证过** | M0-B/M2 每次真实回放的结果与证据分级 | 只能由验收流程追加 |
+
+三者由 `scripts/build_skill_registry.py` 组合成注册表，网关运行时只读它。两条纪律：**限值溯源**（walk 的 vx∈[-0.4, 0.4] 指向训练配置 `velocity_env_cfg.py:113-116`，即"训练时见过的范围"，超出即分布外）；**证据不可伪造**（没有任何代码路径能把"哈希正确、形状正确"自动翻译成"验收通过"，证据缺失只能标 `unknown`）。
+
+### 六道判定
+
+![网关判定流程](images/langctl_gateway.png)
+
+1. **结构检查**：目标必须是 sim（真机请求直接拒）、步数上限、提案未过期（60 秒 TTL——防止"半小时前说的命令突然执行"）；
+2. **白名单**：技能必须在注册表，否则 `capability_gap`——LLM 编不出新技能；
+3. **哈希校验**：模型文件与 lock 不符 → 拒绝启动；
+4. **按编码分组的限值**：velocity 查速度边界；posture_flag 不接受速度参数（坐姿标志不是速度）；phase 的时长来自 period_s×end_phase；constant 不接受任何命令字段——**限值绝不跨编码泄漏**；
+5. **stop 例外**：内置技能，无模型、永远放行、本地立即处理——**停止权不能被任何状态卡住**；
+6. **使用状态 × 证据状态矩阵**：`available+passed` 直接放行；`available+failed` 要显式 `--research`；`experimental`（如 dance_side_step）要 `--experimental`，证据非 passed 还须叠加 `--research`（双重显式确认）；`registered` 普通模式只许 dry-run。研究回放是唯一的"自举"通道，每次都以标签入账可审计。
+
+### 判定输出
+
+不是简单的是/否，而是 `GateResult`：放行与否、是否仅 dry-run、人可读的拒绝原因、错误分类（`capability_gap` 缺能力 / `policy_rejected` 条件不允许 / `parse_error` 结构非法 / `provider_error` API 故障——**API 挂了不会被误记成"机器人缺技能"**）、以及标签。每条判定连同命中规则写入账本，Web 页面的绿/黄/红/灰就来自这里。更完整的定义见 `网关的规则.md`。
+
 ## 一个真实例子："向前走两秒，然后停下"
 
 下面这张图不是示意图，是 2026-10-29 一次真实运行的数据（你可以在 `work/language_control/events.jsonl` 里逐条核对）：
