@@ -1,6 +1,7 @@
 # 语言控制 MicroDuck 方案操作手册（M1+M2）
 
 > 版本：M1-A/M1-B/M1-C + M2 + Web（2026-10-27）。M0 版见 `语言控制MicroDuck方案操作手册_v1.md`。
+> 原理科普（一句话如何变成仿真动作，配真实数据与图）见 `语言控制MicroDuck原理介绍.md`。
 > 范围：持久仿真会话、结构化 CLI、中文序列、停止三语义、技能评价器、本地 Web 薄客户端。零训练、不接真机。
 > 对应代码：`scripts/playback_command_feed.py`、`scripts/sim_stub_playback.py`、`scripts/play_isaac_velocity.py`（会话模式）、`language_control/{session_service,mdctl,evaluator,web,intent,proposal,gateway,ledger_log}.py`。
 
