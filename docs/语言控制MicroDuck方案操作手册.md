@@ -129,6 +129,14 @@ flowchart TD
 5. **mdctl session start 陈旧文件竞态**：上一会话遗留的 requests/*.json（如 cancel）被新 daemon 立即消费导致启动即自杀；修法：start 时清理陈旧协议文件 + daemon 拒绝早于本进程启动时间的请求文件。
 6. **Vulkan ICD 路径**：/etc/vulkan/icd.d 为空，nvidia_icd.json 实际在 /usr/share/vulkan/icd.d；minimal_env 两个路径都找。
 
+### 用户实测修复（2026-10-28/29，commit 17b05a2 / 6b72bca / 668efcc）
+
+7. **已退出会话挂死 → 快速失败**：会话进程退出（如步数预算耗尽）后，`skill run/say/stop` 原先挂死到超时；现在立即报错并提示重启，等待中途会话死亡也会即时返回。新增死会话快速失败回归测试。
+8. **默认步数预算过小**：`session start` 默认 `--steps 1500`——全速 stub 约 1 秒耗尽，Isaac 近实时也只有 30 仿真秒，用户还未下第一条指令会话就已退出。默认改为 2,000,000 步。**注意：`--steps` 是整个会话生命周期的总预算（含待机），不是单条指令的预算；不要显式传小值。**
+9. **stub 闭环租约假过期（用户路径）**：修复 2 只覆盖了测试参数化，`mdctl` 实际启动路径未带大租约，用户跑"走30厘米"在 stub 上必然 lease_expired。修法：stub 后端默认 `streaming_lease_s=3600`（仿真秒），Isaac 保持 3s，可用 `--streaming-lease-s` 覆盖；写者活性仍由墙钟看门狗守护。提醒：stub 上闭环精度无意义（控制延迟在仿真时间里被放大，曾超调至 1.08m），运动精度以 Isaac 为准。
+10. **闭环失败不写终态响应（最严重）**：`_drive_closed_loop` 在调用 `_fail_active_and_queue` 之前先清空了 `_active`，失败归属丢失，`--wait-result` 永远等不到响应（用户"走30厘米"踩中吸引子后闭环 8 仿真秒超时，账本已记 timeout 但终端无输出）。修法：失败分支保留 `_active` 再失败。附 `sim_stub_playback.py --freeze` 测试钩（指令已应用但机体不动，模拟吸引子）+ 冻结超时必返回 failed 的回归测试。
+11. **用户实测确认吸引子真实存在**（修复 3 的后续）：序列内"走→停→走"连续执行正常（位置实移 0.18m），但站定后独立的下一条运动指令锁死站立（进度 0.0037m 超时）。"站立→再行走"从"未验证"降级为**确认无效**，策略层面问题，需立项处理。
+
 ## 技能落位终表（M1+M2 后）
 
 | 技能 | 模型(hash 前8) | 编码 | usage | evidence | 会话可执行 | 备注 |
@@ -158,7 +166,7 @@ flowchart TD
 ## 已知缺口
 
 - ~~Kimi 端点未实测~~ **已实测（2026-10-28）**：默认模型从已下线的 `kimi-k2-0905-preview` 改为 `kimi-k3`（可用 `KIMI_LC_MODEL` 覆盖）；kimi-k3 仅接受 temperature=1，客户端 400 时自动降级（`KIMI_LC_TEMPERATURE` 可覆盖）。实测结果：**strict JSON Schema 支持=是**；"翻跟头"→roulade、"不要翻跟头"→stop（否定正确）、"先蹲下再站起来"→capability_gap（两技能均 registered，不放行不猜测）、"给我跳个舞"→dance_side_step（网关仍按 experimental+failed 拦截执行）。长句偶发 20s 超时（REQUEST_TIMEOUT_S，可按需调大）。密钥仅经环境变量传入，不落盘、不入账、不进子进程。
-- **velstand 站立不动吸引子**：本 Isaac 配置下不能从已稳定站立平衡起步/原地转向；会话内 站立→再行走 未验证；move_distance 仅限首命令从 step 0 起步的会话。
+- **velstand 站立不动吸引子**：本 Isaac 配置下不能从已稳定站立平衡起步/原地转向；会话内"站立→再行走"经用户实测**确认无效**（修复记录 11）；move_distance 仅限首命令从 step 0 起步的会话。
 - vy/yaw 纯横向/转向命令的航向证据需 trace 支持（当前保守降级 insufficient_data）。
 - M1-C 真实跨模型切换、M3 真机边界：另立项。
 - dance V4 保持 experimental+failed，整改需另行立项。
