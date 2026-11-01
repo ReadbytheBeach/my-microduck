@@ -137,6 +137,20 @@ flowchart TD
 10. **闭环失败不写终态响应（最严重）**：`_drive_closed_loop` 在调用 `_fail_active_and_queue` 之前先清空了 `_active`，失败归属丢失，`--wait-result` 永远等不到响应（用户"走30厘米"踩中吸引子后闭环 8 仿真秒超时，账本已记 timeout 但终端无输出）。修法：失败分支保留 `_active` 再失败。附 `sim_stub_playback.py --freeze` 测试钩（指令已应用但机体不动，模拟吸引子）+ 冻结超时必返回 failed 的回归测试。
 11. **用户实测确认吸引子真实存在**（修复 3 的后续）：序列内"走→停→走"连续执行正常（位置实移 0.18m），但站定后独立的下一条运动指令锁死站立（进度 0.0037m 超时）。"站立→再行走"从"未验证"降级为**确认无效**，策略层面问题，需立项处理。
 
+### M2 Web v2 增强（2026-10-31：实时校验 + 语音 + 视频节选）
+
+1. **`op=check` 只校验不执行**：session_service 抽出 `_validate_steps`（_submit_steps 与 check 共用，单一事实源），check 复用完整静态校验（解析+注册表+编码+限值+闭环）但不入队、不写 command.json；账本记 `sequence event="check"`。
+2. **Web 实时可执行反馈**：`POST /api/check`，输入框 500ms 防抖自动校验，绿（可执行）/黄红（逐条原因）/灰（会话未起）。
+3. **会话录像**：`mdctl session start --backend isaac --video` → 整段 session.mp4 + **每命令片段** clips/（新模块 `scripts/session_clip_recorder.py`，按 applied_command_id 边界开关 ffmpeg 管道；<12 帧的闭环 supersede 碎片自动删；编码器故障只丢片段不打死仿真）+ 1Hz latest.jpg 预览帧（PIL）。Web 新增 /api/clips、/api/clip（basename 防穿越）、/api/frame.jpg，页面"仿真画面"面板 1Hz 预览 + 片段点播。修复 hold-at-start 早退不收尾 video 的边界。
+4. **语音输入**：浏览器 MediaRecorder 收音（不做服务器端声卡采集），`POST /api/voice` 收 webm/opus（≤8MB，超限先排空再 413 防断管）→ ffmpeg 转 16k WAV → sherpa-onnx paraformer-zh 离线转写 → 回显 + 自动 check → 用户点发送才执行；"停下"命中立即停。账本 `asr` 事件（时长/转写/模型 SHA-256），音频默认删（--keep-audio 留存）。
+5. 测试：check 4 例（绿/限值拒/能力缺口拒/暂停拒 + 零执行痕迹）、web check+clips+voice 6 例、ClipRecorder 3 例（真 ffmpeg + 合成帧，libx264）、asr 3 例（合成/样本 WAV，不碰声卡）。回归 226 passed + 2 env-gated skip + 85 subtests。
+
+### Web v2 使用规则（2026-11-01，用户实测后补充）
+
+6. **会话自动选择 + 切换栏**：`GET /api/sessions` 按 mtime 列出全部会话；页面 URL 不带 `session=` 时自动连最新 running/paused 会话（此前默认死连 `sim01`，用户实测踩坑：盯着已取消的旧会话报"无预览帧/session is cancelled"）。顶部"会话"栏可手动切换并显示实时状态，不用改 URL。
+7. **片段面板只展示本次会话**：`session start` 清理陈旧协议文件时，同名旧会话的 `session.mp4`、`latest.jpg(.tmp)`、`clips/*.mp4` 一并删除（回归测试 `test_start_clears_stale_video_artifacts` 锁定）。**要留存的片段必须在重开同名会话前复制走**。`/api/clips` 返回片段目录绝对路径，面板顶部显示，悬停片段可见完整路径。
+8. 输入框加高（3em→7em）。完整使用说明单独立文：`docs/语言控制MicroDuckWeb操作指南.md`（语音方案文档第三节已互链）。
+
 ## 技能落位终表（M1+M2 后）
 
 | 技能 | 模型(hash 前8) | 编码 | usage | evidence | 会话可执行 | 备注 |

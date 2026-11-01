@@ -17,6 +17,8 @@ command file themselves. The service:
   the rest of the sequence — no overwriting, no lost steps;
 - maintains leases (renewal) and the writer heartbeat; the play-side
   watchdog/lease logic lives in scripts/playback_command_feed.py;
+- answers op=check requests with the same static validation as submit
+  (parse + resolve + limits) but never enqueues or writes commands;
 - implements the stop three-semantics: stop_skill (velocity zero command,
   sim keeps running), pause_sim/resume_sim, cancel_session (process ends,
   evidence kept). Stop never waits on an LLM and invalidates queued work,
@@ -96,6 +98,7 @@ class SessionService:
         stub_options: dict | None = None,
         step_wall_timeout_factor: float = 4.0,
         streaming_lease_s: float = STREAMING_LEASE_S,
+        video: bool = False,
     ):
         if backend not in ("isaac", "stub"):
             raise ValueError(f"unknown backend {backend!r}")
@@ -111,6 +114,7 @@ class SessionService:
         self.stub_options = dict(stub_options or {})
         self.step_wall_timeout_factor = step_wall_timeout_factor
         self.streaming_lease_s = streaming_lease_s
+        self.video = video
 
         self.session_id = uuid.uuid4().hex
         self.session_epoch = 1
@@ -319,6 +323,12 @@ class SessionService:
             "--output", str(paths.play_output),
             "--kit_args", ISAAC_KIT_ARGS,
         ]
+        if self.video:
+            argv += [
+                "--video", str(paths.dir / "session.mp4"),
+                "--video-width", "1280",
+                "--video-height", "720",
+            ]
         env = minimal_env()
         if os.environ.get("MICRODUCK_DEBUG_OBS"):  # debug passthrough (off by default)
             env["MICRODUCK_DEBUG_OBS"] = "1"
@@ -367,6 +377,7 @@ class SessionService:
             "pid_play": None if self._process is None else self._process.pid,
             "created_at": _now_iso(),
             "steps": self.steps,
+            "video": self.video,
         })
 
     # -- request intake --------------------------------------------------------
@@ -392,9 +403,10 @@ class SessionService:
         self._requests.setdefault(request_id, {})["response"] = response
 
     # -- sequence engine -------------------------------------------------------
-    def _submit_steps(self, request: dict) -> None:
-        """Validate all steps statically, then enqueue for stepwise execution."""
-        request_id = request["request_id"]
+    def _validate_steps(self, request: dict) -> tuple[list[dict], dict | None]:
+        """Static validation shared by submit and check: build the proposal and
+        resolve every step. Returns (resolved, None) on success or
+        ([], error_response) on failure. Never enqueues or writes commands."""
         steps = request.get("steps", [])
         try:
             proposal = new_proposal(
@@ -404,30 +416,70 @@ class SessionService:
                 max_steps=8,
             )
         except ProposalError as exc:
-            self._write_response(request_id, {
+            return [], {
                 "status": "rejected", "classification": exc.classification,
                 "reason": exc.reason,
-            })
-            return
+            }
         resolved = []
         for index, step in enumerate(proposal.steps):
             try:
                 item = self._resolve_step(step.skill, step.params)
             except ProposalError as exc:
                 self.ledger.append(
-                    "sequence", request_id=request_id, event="static_reject",
+                    "sequence", request_id=request["request_id"], event="static_reject",
                     step_index=index, skill=step.skill,
                     classification=exc.classification, reason=exc.reason,
                 )
-                self._write_response(request_id, {
+                return [], {
                     "status": "rejected", "classification": exc.classification,
                     "reason": f"step {index} ({step.skill}): {exc.reason}",
-                })
-                return
+                    "failed_step": index,
+                }
             item["skill"] = step.skill
-            item["request_id"] = request_id
+            item["request_id"] = request["request_id"]
             item["step_index"] = index
             resolved.append(item)
+        return resolved, None
+
+    def _handle_check(self, request: dict) -> None:
+        """op=check: validate-only; no queue, no command file, no execution."""
+        request_id = request["request_id"]
+        resolved, error = self._validate_steps(request)
+        if error is not None:
+            self.ledger.append(
+                "sequence", request_id=request_id, event="check",
+                verdict="rejected", classification=error["classification"],
+                reason=error["reason"],
+            )
+            self._write_response(request_id, error)
+            return
+        if self.state == "paused":
+            self._write_response(request_id, {
+                "status": "rejected", "classification": "policy_rejected",
+                "reason": "session is paused; resume first",
+            })
+            return
+        self.ledger.append(
+            "sequence", request_id=request_id, event="check", verdict="ok",
+            steps=[{"skill": s["skill"], "sim_duration_s": s.get("sim_duration_s")}
+                   for s in resolved],
+        )
+        self._write_response(request_id, {
+            "status": "ok",
+            "steps": [
+                {"skill": s["skill"], "sim_duration_s": s.get("sim_duration_s"),
+                 "closed_loop": s.get("closed_loop")}
+                for s in resolved
+            ],
+        })
+
+    def _submit_steps(self, request: dict) -> None:
+        """Validate all steps statically, then enqueue for stepwise execution."""
+        request_id = request["request_id"]
+        resolved, error = self._validate_steps(request)
+        if error is not None:
+            self._write_response(request_id, error)
+            return
         if self.state == "paused":
             self._write_response(request_id, {
                 "status": "rejected", "classification": "policy_rejected",
@@ -852,6 +904,8 @@ class SessionService:
                         self._handle_stop(request)
                     elif op == "resume":
                         self._handle_resume(request)
+                    elif op == "check":
+                        self._handle_check(request)
                     elif op in ("run", "sequence"):
                         self._submit_steps(request)
                 self._process_acks()
@@ -890,6 +944,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stub-option", action="append", default=[],
                         help="key=value test-double options (control_dt, tick_sleep, ...)")
     parser.add_argument("--streaming-lease-s", type=float, default=STREAMING_LEASE_S)
+    parser.add_argument("--video", action="store_true",
+                        help="isaac backend: record session.mp4 + per-command clips")
     args = parser.parse_args(argv)
     stub_options = {}
     for item in args.stub_option:
@@ -906,6 +962,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         stub_options=stub_options,
         streaming_lease_s=args.streaming_lease_s,
+        video=args.video,
     )
     return service.run()
 

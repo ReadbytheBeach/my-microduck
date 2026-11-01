@@ -134,6 +134,15 @@ def cmd_session_start(args) -> dict:
     for stale_dir in ("requests", "responses"):
         for stale_file in (sdir / stale_dir).glob("*.json"):
             stale_file.unlink()
+    # stale video artifacts from a previous run on this session name:
+    # the web panel must only show this session's clips
+    for stale in ("session.mp4", "latest.jpg", "latest.jpg.tmp"):
+        try:
+            (sdir / stale).unlink()
+        except FileNotFoundError:
+            pass
+    for stale_clip in (sdir / "clips").glob("*.mp4"):
+        stale_clip.unlink()
     sdir.mkdir(parents=True, exist_ok=True)
     argv = [
         sys.executable, "-m", "language_control.session_service",
@@ -152,6 +161,8 @@ def cmd_session_start(args) -> dict:
         # wall-clock writer liveness is still guarded by the file watchdog
         lease = 3600.0 if args.backend == "stub" else 3.0
     argv += ["--streaming-lease-s", str(lease)]
+    if args.video:
+        argv += ["--video"]
     for key, value in (args.stub_option or []):
         argv += ["--stub-option", f"{key}={value}"]
     env = {
@@ -363,6 +374,9 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--streaming-lease-s", type=float, default=None,
                        help="sim-time lease for streaming commands "
                             "(default: 3.0 isaac / 3600.0 stub)")
+    start.add_argument("--video", action="store_true",
+                       help="isaac backend: record session.mp4 + per-command clips "
+                            "and a ~1 Hz preview frame (GPU cost)")
     start.set_defaults(func=cmd_session_start)
     stop = session_sub.add_parser("stop")
     stop.add_argument("--name", default="sim01")

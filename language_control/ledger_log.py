@@ -35,6 +35,8 @@ EVENT_TYPES = (
     "ack",
     "sequence",
     "fault",
+    # M2 web voice input
+    "asr",
 )
 
 _SECRET_KEY_RE = re.compile(r"(key|secret|token|password|credential|authorization|env)", re.IGNORECASE)

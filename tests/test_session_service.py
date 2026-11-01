@@ -91,7 +91,7 @@ class StubSession:
             response = pcf.read_json(path)
             if response and (
                 response["status"] in ("completed", "failed", "rejected", "stopped",
-                                       "interrupted", "cancelled")
+                                       "interrupted", "cancelled", "ok")
                 or not wait_terminal and response["status"] in ("applied", "accepted")
             ):
                 return response
@@ -174,6 +174,64 @@ class SessionBasicTests(unittest.TestCase):
                 command_cn.pop(volatile)
                 command_cli.pop(volatile)
             self.assertEqual(command_cn, command_cli)
+
+
+class CheckOpTests(unittest.TestCase):
+    """op=check: validate-only — same static checks as submit, no execution."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_check_ok_leaves_no_trace(self):
+        with StubSession(self.tmp_path) as session:
+            response = session.request({
+                "op": "check",
+                "steps": [{"skill": "walk", "params": {"vx": 0.15, "sim_duration_s": 0.4}}],
+            })
+            self.assertEqual(response["status"], "ok")
+            self.assertEqual(response["steps"][0]["skill"], "walk")
+            self.assertEqual(response["steps"][0]["sim_duration_s"], 0.4)
+            # no command was ever written and nothing was queued
+            self.assertFalse((session.dir / "command.json").exists())
+            self.assertEqual(session.service._queue, [])
+            self.assertIsNone(session.service._active)
+            ledger = (self.tmp_path / "events-t.jsonl").read_text(encoding="utf-8")
+            self.assertIn('"check"', ledger)
+            self.assertNotIn('"command"', ledger)
+
+    def test_check_limit_violation_rejected(self):
+        with StubSession(self.tmp_path) as session:
+            response = session.request({
+                "op": "check",
+                "steps": [{"skill": "walk", "params": {"vx": 0.41}}],
+            })
+            self.assertEqual(response["status"], "rejected")
+            self.assertEqual(response["classification"], "policy_rejected")
+
+    def test_check_capability_gap_rejected(self):
+        with StubSession(self.tmp_path) as session:
+            response = session.request({
+                "op": "check",
+                "steps": [{"skill": "no_such_skill", "params": {}}],
+            })
+            self.assertEqual(response["status"], "rejected")
+            self.assertEqual(response["classification"], "capability_gap")
+
+    def test_check_while_paused_rejected(self):
+        with StubSession(self.tmp_path) as session:
+            pause = session.request({"op": "stop", "mode": "pause_sim"})
+            self.assertEqual(pause["status"], "stopped")
+            response = session.request({
+                "op": "check",
+                "steps": [{"skill": "walk", "params": {"vx": 0.15, "sim_duration_s": 0.4}}],
+            })
+            self.assertEqual(response["status"], "rejected")
+            self.assertIn("paused", response["reason"])
+            session.request({"op": "resume"}, wait_terminal=False)
 
 
 class SequenceTests(unittest.TestCase):
@@ -435,6 +493,34 @@ class MdctlEndToEndTests(unittest.TestCase):
                 "--vx", "0.1", "--execute",
             ])
         self.assertIn("exited", str(ctx.exception))
+
+    def test_start_clears_stale_video_artifacts(self):
+        """同名会话重启: 上一轮的 session.mp4/latest.jpg/clips 必须清掉,
+        Web 片段面板只展示本次会话的片段."""
+        root = self.tmp_path / "sessions"
+        sdir = root / "vid"
+        (sdir / "requests").mkdir(parents=True)
+        (sdir / "responses").mkdir(parents=True)
+        (sdir / "clips").mkdir()
+        (sdir / "session.mp4").write_bytes(b"old")
+        (sdir / "latest.jpg").write_bytes(b"old")
+        (sdir / "clips" / "0009_deadbeef.mp4").write_bytes(b"old")
+        self.run_mdctl(
+            "--sessions-root", str(root),
+            "--ledger", str(self.tmp_path / "events.jsonl"),
+            "session", "start", "--backend", "stub", "--name", "vid",
+            "--steps", "50000000",
+            "--stub-option", "control_dt", "0.02",
+        )
+        try:
+            self.assertFalse((sdir / "session.mp4").exists())
+            self.assertFalse((sdir / "latest.jpg").exists())
+            self.assertEqual(list((sdir / "clips").glob("*.mp4")), [])
+        finally:
+            self.run_mdctl(
+                "--sessions-root", str(root),
+                "session", "stop", "--name", "vid",
+            )
 
     def test_full_flow_without_api_key(self):
         env = {k: v for k, v in os.environ.items()

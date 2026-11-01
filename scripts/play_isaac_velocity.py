@@ -303,6 +303,7 @@ def main() -> int:
 
     env = None
     video_process = None
+    clip_recorder = None
     fixed_command = args_cli.phase_clock is not None or any(
         value is not None
         for value in (args_cli.command_vx, args_cli.command_vy, args_cli.command_yaw)
@@ -512,6 +513,29 @@ def main() -> int:
                 stderr=subprocess.PIPE,
             )
 
+        clip_recorder = None
+        if session_mode and video is not None:
+            from session_clip_recorder import SessionClipRecorder
+            clip_recorder = SessionClipRecorder(
+                video.parent / "clips",
+                args_cli.video_width, args_cli.video_height, args_cli.video_fps,
+            )
+            preview_path = video.parent / "latest.jpg"
+        else:
+            preview_path = None
+
+        def write_preview_frame(frame) -> None:
+            # best-effort ~1 Hz preview for the web UI; never fatal
+            if preview_path is None:
+                return
+            try:
+                from PIL import Image
+                tmp = preview_path.with_suffix(".jpg.tmp")
+                Image.fromarray(frame, mode="RGB").save(tmp, format="JPEG", quality=80)
+                tmp.replace(preview_path)
+            except Exception:
+                pass
+
         reward_sum = 0.0
         done_count = 0
         min_root_height = math.inf
@@ -579,6 +603,18 @@ def main() -> int:
                         print("MICRODUCK_PLAYBACK_STAGE=hold-timeout", flush=True)
                         break
                 if session_cancelled or not session_started:
+                    if video_process is not None:
+                        # hold ended before the main loop: no frames were ever
+                        # written, so close the encoder and drop the empty mp4
+                        if video_process.stdin is not None and not video_process.stdin.closed:
+                            video_process.stdin.close()
+                        video_process.wait(timeout=10)
+                        if video is not None and video_frame_count == 0:
+                            video.unlink(missing_ok=True)
+                        video_process = None
+                    if clip_recorder is not None:
+                        clip_recorder.close()
+                        clip_recorder = None
                     output.parent.mkdir(parents=True, exist_ok=True)
                     output.write_text(json.dumps({
                         "task": task_id, "session_id": args_cli.session_id,
@@ -696,11 +732,24 @@ def main() -> int:
                     valid_transition
                 ]
                 previous_root_xy = current_root_xy.clone()
-                if video_process is not None and step % args_cli.video_every == 0:
-                    if video_process.stdin is None or playback_camera is None:
-                        raise RuntimeError("Playback video encoder is unavailable")
-                    video_process.stdin.write(camera_rgb(playback_camera).tobytes())
-                    video_frame_count += 1
+                want_video_frame = (
+                    video_process is not None and step % args_cli.video_every == 0
+                )
+                want_preview = preview_path is not None and step % 25 == 0
+                if want_video_frame or want_preview:
+                    if playback_camera is None:
+                        raise RuntimeError("Playback camera is unavailable")
+                    frame = camera_rgb(playback_camera)
+                    if want_video_frame:
+                        if video_process.stdin is None:
+                            raise RuntimeError("Playback video encoder is unavailable")
+                        video_process.stdin.write(frame.tobytes())
+                        video_frame_count += 1
+                        if clip_recorder is not None:
+                            clip_recorder.poll(session_feed)
+                            clip_recorder.write_frame(frame.tobytes())
+                    if want_preview:
+                        write_preview_frame(frame)
 
         final_root_xy = env.unwrapped.scene["robot"].data.root_pos_w.torch[:, :2]
         root_delta_xy = accumulated_root_delta_xy
@@ -851,6 +900,8 @@ def main() -> int:
         print("MICRODUCK_PLAYBACK_STAGE=complete", flush=True)
         return 0
     finally:
+        if clip_recorder is not None:
+            clip_recorder.close()
         if video_process is not None:
             if video_process.stdin is not None and not video_process.stdin.closed:
                 video_process.stdin.close()
