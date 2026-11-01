@@ -159,4 +159,6 @@ def proposal_from_llm_payload(payload_text: str, raw_text: str) -> Proposal:
         if not isinstance(params, dict):
             raise ProposalError("parse_error", f"step {index} params must be an object")
         steps.append(Step(skill=skill, params=params))
-    return new_proposal(steps=steps, raw_text=raw_text, source="llm", target=target)
+    # LLM proposals may be multi-step sequences (aligned with the session cap)
+    return new_proposal(steps=steps, raw_text=raw_text, source="llm",
+                        target=target, max_steps=8)

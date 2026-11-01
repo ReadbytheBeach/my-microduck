@@ -3,72 +3,125 @@
   "notes": "Local skill config: how each skill is invoked. Combined by scripts/build_skill_registry.py with the upstream manifest/lock and the independent acceptance records. usage_state=available is only honored when the builder can confirm passed evidence and a fully verified contract; otherwise it is demoted with a warning. The LLM never sees this file.",
   "skills": {
     "walk": {
-      "model": {"path": "reference/policies/v7/velstand.onnx", "lock_key": "velstand.onnx"},
+      "model": {
+        "path": "reference/policies/v7/velstand.onnx",
+        "lock_key": "velstand.onnx"
+      },
       "kind": "perpetual",
-      "command": {"encoding": "velocity"},
+      "command": {
+        "encoding": "velocity"
+      },
       "adapter": "isaac_playback",
-      "defaults": {"steps": 100},
+      "defaults": {
+        "steps": 100
+      },
       "usage_state": "available",
       "scope_note": "available only within the M0-B verified scope: isaac_playback adapter, Isaac-MicroDuck-Velocity-Flat-Play-v0, flat terrain, velocity limits per contract"
     },
     "stand": {
-      "model": {"path": "reference/policies/v7/alpha_stand.onnx", "lock_key": "alpha_stand.onnx"},
+      "model": {
+        "path": "reference/policies/v7/alpha_stand.onnx",
+        "lock_key": "alpha_stand.onnx"
+      },
       "kind": "perpetual",
-      "command": {"encoding": "velocity"},
+      "command": {
+        "encoding": "velocity"
+      },
       "adapter": "isaac_playback",
-      "defaults": {"steps": 100},
+      "defaults": {
+        "steps": 100
+      },
       "usage_state": "registered"
     },
     "sitdown": {
-      "model": {"path": "reference/policies/v7/alpha_sitstand.onnx", "lock_key": "alpha_sitstand.onnx"},
+      "model": {
+        "path": "reference/policies/v7/alpha_sitstand.onnx",
+        "lock_key": "alpha_sitstand.onnx"
+      },
       "kind": "scripted",
-      "command": {"encoding": "posture_flag"},
+      "command": {
+        "encoding": "posture_flag"
+      },
       "posture": "sit",
       "adapter": "isaac_playback",
-      "defaults": {"steps": 100},
+      "defaults": {
+        "steps": 100
+      },
       "usage_state": "registered"
     },
     "standup": {
-      "model": {"path": "reference/policies/v7/alpha_sitstand.onnx", "lock_key": "alpha_sitstand.onnx"},
+      "model": {
+        "path": "reference/policies/v7/alpha_sitstand.onnx",
+        "lock_key": "alpha_sitstand.onnx"
+      },
       "kind": "scripted",
-      "command": {"encoding": "posture_flag"},
+      "command": {
+        "encoding": "posture_flag"
+      },
       "posture": "stand",
       "adapter": "isaac_playback",
-      "defaults": {"steps": 100},
+      "defaults": {
+        "steps": 100
+      },
       "usage_state": "registered"
     },
     "roulade": {
-      "model": {"path": "reference/policies/v7/roulade.onnx", "lock_key": "roulade.onnx"},
+      "model": {
+        "path": "reference/policies/v7/roulade.onnx",
+        "lock_key": "roulade.onnx"
+      },
       "kind": "episodic",
-      "command": {"encoding": "constant"},
+      "command": {
+        "encoding": "constant"
+      },
       "adapter": "isaac_playback",
       "usage_state": "registered"
     },
     "kick_left": {
-      "model": {"path": "reference/policies/v7/ball_kick_left.onnx", "lock_key": "ball_kick_left.onnx"},
+      "model": {
+        "path": "reference/policies/v7/ball_kick_left.onnx",
+        "lock_key": "ball_kick_left.onnx"
+      },
       "kind": "episodic",
-      "command": {"encoding": "constant"},
+      "command": {
+        "encoding": "constant"
+      },
       "adapter": "isaac_playback",
       "usage_state": "registered"
     },
     "kick_right": {
-      "model": {"path": "reference/policies/v7/ball_kick_right.onnx", "lock_key": "ball_kick_right.onnx"},
+      "model": {
+        "path": "reference/policies/v7/ball_kick_right.onnx",
+        "lock_key": "ball_kick_right.onnx"
+      },
       "kind": "episodic",
-      "command": {"encoding": "constant"},
+      "command": {
+        "encoding": "constant"
+      },
       "adapter": "isaac_playback",
       "usage_state": "registered"
     },
     "crouch": {
-      "model": {"path": "reference/policies/v7/roller_crouch.onnx", "lock_key": "roller_crouch.onnx"},
+      "model": {
+        "path": "reference/policies/v7/roller_crouch.onnx",
+        "lock_key": "roller_crouch.onnx"
+      },
       "kind": "episodic",
-      "command": {"encoding": "phase"},
+      "command": {
+        "encoding": "phase"
+      },
       "adapter": "isaac_playback",
       "usage_state": "registered"
     },
     "ground_pick": {
-      "model": {"path": "reference/policies/v7/alpha_ground_pick.onnx", "lock_key": "alpha_ground_pick.onnx"},
+      "model": {
+        "path": "reference/policies/v7/alpha_ground_pick.onnx",
+        "lock_key": "alpha_ground_pick.onnx"
+      },
       "kind": "episodic",
-      "command": {"encoding": "phase"},
+      "command": {
+        "encoding": "phase"
+      },
       "adapter": "isaac_playback",
       "usage_state": "available",
       "scope_note": "available only within the M0-B verified scope: isaac_playback adapter, Isaac-MicroDuck-Velocity-Flat-Play-v0, flat terrain, phase envelope 4.0s x 0.7"
@@ -80,16 +133,38 @@
         "provenance": "local artifact: video-dance V4 stage-1 hard-floor policy (work/video_dance/docs/V1-V4核心目标策略奖励观测与验收标准.md)"
       },
       "kind": "perpetual",
-      "command": {"encoding": "phase", "period_s": 4.966666666666667, "end_phase": 1.0},
+      "command": {
+        "encoding": "phase",
+        "period_s": 4.966666666666667,
+        "end_phase": 1.0
+      },
       "adapter": "isaac_playback",
       "usage_state": "experimental"
     },
     "stop": {
       "model": null,
       "kind": "builtin",
-      "command": {"encoding": "builtin"},
+      "command": {
+        "encoding": "builtin"
+      },
       "adapter": null,
       "usage_state": "available"
+    },
+    "walk_backward": {
+      "model": {
+        "path": "reference/policies/v7/velstand.onnx",
+        "lock_key": "velstand.onnx"
+      },
+      "kind": "perpetual",
+      "command": {
+        "encoding": "velocity"
+      },
+      "adapter": "isaac_playback",
+      "defaults": {
+        "steps": 100
+      },
+      "usage_state": "available",
+      "scope_note": "walk 的后退变体（同 velstand 策略，vx<0）；scope 同 walk，另需自有 vx=-0.15 核验证据"
     }
   },
   "transition_edges": [
@@ -100,7 +175,10 @@
       "type": "same_policy_param_switch",
       "status": "verified_same_policy",
       "note": "walk/stand 共用 velstand.onnx(任务书 §3.5 修正);stand = 零速度设定值 + 2s 保持,不是跨模型切换",
-      "preconditions": {"posture": "standing", "max_planar_speed_mps": 0.4},
+      "preconditions": {
+        "posture": "standing",
+        "max_planar_speed_mps": 0.4
+      },
       "failure_fallback": "stop_skill 零指令",
       "evidence": "M1-A/B: tests/test_session_service.py 序列与停止测试(stub);真实 Isaac 会话 m1b20 验证同策略零指令与 cancel 路径(2026-10-27, work/language_control/sessions/m1b20/)"
     },
@@ -111,7 +189,10 @@
       "type": "cross_model",
       "status": "unverified",
       "note": "跨模型(velstand.onnx -> alpha_sitstand.onnx)。在记录 A/B 不同 hash、契约绑定与切换控制步并实测之前,会话服务一律拒绝;不为凑测试开放",
-      "preconditions": {"posture": "standing", "max_planar_speed_mps": 0.05},
+      "preconditions": {
+        "posture": "standing",
+        "max_planar_speed_mps": 0.05
+      },
       "failure_fallback": "stop_skill 零指令 + cancel_session",
       "evidence": null
     }

@@ -74,6 +74,8 @@ $PY -m language_control.mdctl session stop --name voice01
   - 验证命令：`pytest tests/ --ignore=tests/test_dance_slope_terrain.py`（226 passed + 2 env-gated skip + 85 subtests，既有 Isaac import error 除外）；ASR 冒烟 `test_wavs/0.wav` 转写正确。
   - 用法变化：语音在 Web 页面上（🎙 按钮，浏览器弹麦克风权限），转写回显后自动跑 /api/check 给绿/黄/红，确认后点发送；"停下"转写命中立即执行。不再有 `mdctl say --voice`。
   - 会话录像：`mdctl session start --backend isaac --video` → session.mp4 + clips/ 每命令片段 + latest.jpg 预览帧（1Hz），Web 页面直接看。
+- 2026-11-01：识别容忍度提升——解析器新增 20+ 口语同义词（走路/朝前走/站定/打个滚/踢左腿/停住/别走了等），ASR 转写出近义说法也能命中受控技能；完整说法清单见《语言控制MicroDuckWeb操作指南.md》"二补"。页面布局迭代：提案/网关与技能面板并排、页面宽 1600px、视频视窗 480px。
+- 2026-11-01（理解层升级）：Web 接入 Kimi 开关（1.选中则使用Kimi模型解析/或规则匹配），Kimi 的 system prompt 由**活注册表**生成（与技能面板同源，新技能自动进入匹配空间，多步≤8步+参数可提取）；勾选后语音转写出的自由表述也能理解。解析失败附"你是不是想说"建议层。匹配结果发送前可审计（"匹配结果: walk(vx=0.15,sim_duration_s=2) → stand"）。
 
 ## 五、明确不做
 

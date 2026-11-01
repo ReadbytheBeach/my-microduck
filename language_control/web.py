@@ -30,7 +30,14 @@ if str(_SCRIPTS) not in sys.path:
 
 import playback_command_feed as pcf  # noqa: E402
 
-from .intent import SequenceParser, STOP_PHRASES  # noqa: E402
+from .intent import (  # noqa: E402
+    SKILL_ZH,
+    KimiClient,
+    SequenceParser,
+    STOP_PHRASES,
+    skill_phrase_variants,
+    suggest_phrases,
+)
 from .proposal import ProposalError  # noqa: E402
 from .mdctl import _wait_response, _write_request, session_dir  # noqa: E402
 from .session_service import DEFAULT_REGISTRY, DEFAULT_SESSIONS_ROOT  # noqa: E402
@@ -38,31 +45,48 @@ from .session_service import DEFAULT_REGISTRY, DEFAULT_SESSIONS_ROOT  # noqa: E4
 MAX_BODY_BYTES = 64 * 1024
 MAX_AUDIO_BODY_BYTES = 8 * 1024 * 1024
 
+
+def _env_kimi_key() -> str:
+    import os
+    return os.environ.get("KIMI_LC_API_KEY") or os.environ.get("MOONSHOT_API_KEY", "")
+
 PAGE = """<!doctype html>
 <meta charset="utf-8">
 <title>MicroDuck 语言控制</title>
 <style>
-body{font-family:system-ui;margin:2em;max-width:960px}
+body{font-family:system-ui;margin:2em;max-width:1600px}
 textarea{width:100%;height:7em;font-size:1.05em}
 .panel{border:1px solid #ccc;border-radius:8px;padding:1em;margin:1em 0}
+.row{display:flex;gap:1em;align-items:stretch}
+.row>.panel{flex:1;min-width:0;margin:0}
+.row{margin:1em 0}
 .state-ok{color:#0a0}.state-warn{color:#c80}.state-bad{color:#c00}.state-na{color:#888}
 #stop{background:#c00;color:#fff;font-size:1.2em;padding:.5em 2em;border:0;border-radius:8px}
+#sessName{width:24em}
 pre{background:#f6f6f6;padding:.5em;overflow:auto;max-height:16em}
 table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:2px 8px}
+#preview,video{max-width:480px}
 </style>
 <h1>MicroDuck 语言控制（本地原型）</h1>
 <div class=panel>
-  <b>会话</b> <input id=sessName style="width:10em"> <button onclick="switchSession()">切换</button>
+  <b>会话</b> <input id=sessName> <button onclick="switchSession()">切换</button>
   <span id=sessState class=state-na>—</span>
 </div>
+<div class=row>
 <div class=panel>
   <b>提案/网关</b><br>
   <textarea id=text placeholder="向前走两秒，然后停下" oninput="scheduleCheck()"></textarea><br>
-  <button onclick="say()">发送(规则解析)</button>
-  <button id=recBtn onclick="toggleRecord()">🎙 语音</button>
+  <button onclick="configKimiKey()">export MOONSHOT_API_KEY=...</button>
+  <span id=kimiKeyState class=state-na></span><br>
+  <button id=recBtn onclick="toggleRecord()">2.语音</button>
   <span id=heard></span><br>
-  可执行性: <span id=verdict class=state-na>—</span><br>
+  <button onclick="say()">3.发送并规则解析</button>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <label><input type=checkbox id=useLlm onchange="scheduleCheck()"> 1.选中则使用Kimi模型解析/或规则匹配</label><br>
+  网关校验(规则判定): <span id=verdict class=state-na>—</span> <span id=suggest class=state-warn></span><br>
+  <span id=matched class=state-ok></span><br>
   <span id=gate></span>
+</div>
+<div class=panel><b>技能面板</b>（✓=本会话可执行，照着拼指令）<div id=skills>—</div></div>
 </div>
 <div class=panel>
   <b>执行进度</b> <button id=stop onclick="stop()">■ 停止</button>
@@ -70,12 +94,11 @@ table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:2px 8px}
 </div>
 <div class=panel>
   <b>仿真画面</b>（需会话以 --video 启动）<br>
-  <img id=preview style="max-width:480px;display:block" alt="无预览帧">
+  <img id=preview style="display:block" alt="无预览帧">
   <div id=clipsDir style="color:#888;font-size:.85em"></div>
   <div id=clips>—</div>
 </div>
 <div class=panel><b>动作结果</b><pre id=result>—</pre></div>
-<div class=panel><b>技能面板</b><div id=skills>—</div></div>
 <div class=panel><b>历史(原文→提案→网关→三判断)</b><pre id=history>—</pre></div>
 <script>
 const TOKEN = new URLSearchParams(location.search).get("token") || "";
@@ -130,17 +153,20 @@ async function toggleRecord(){
         if(!data.text){ heard.textContent = data.error || "没听清，请重说"; return; }
         heard.textContent = "我听到的是：" + data.text;
         document.getElementById("text").value = data.text;
-        const chk = await api("/api/check", {session: SESSION, text: data.text});
+        const chk = await api("/api/check", {session: SESSION, text: data.text, use_llm: useLlm()});
         if(chk.handled === "stop_hint"){ stop(); return; }  // 停下:不等确认
         if(chk.handled === "rejected"){
-          document.getElementById("verdict").textContent = "✗ " + chk.reason;
-          document.getElementById("verdict").className = "state-bad";
+          const v0 = document.getElementById("verdict");
+          v0.textContent = "✗ 不可执行 (" + chk.classification + ")";
+          v0.title = chk.reason || "";
+          v0.className = "state-bad";
+          showSuggest(chk.suggestions);
           return;
         }
         const resp = chk.response || {};
         const v = document.getElementById("verdict");
-        if(resp.status === "ok"){ v.textContent = "✓ 可执行，确认后点发送"; v.className = "state-ok"; }
-        else { v.textContent = "✗ " + (resp.reason || "?"); v.className = "state-bad"; }
+        if(resp.status === "ok"){ v.textContent = "✓ 可执行，确认后点发送("+parserTag(chk.parser)+")"; v.className = "state-ok"; showMatched(chk.matched); }
+        else { v.textContent = "✗ 不可执行 (" + (resp.classification||"rejected") + ")"; v.title = resp.reason || ""; v.className = "state-bad"; showMatched(chk.matched); }
       }catch(e){ heard.textContent = "转写失败: " + e; }
     };
     mediaRecorder.start();
@@ -156,22 +182,61 @@ function scheduleCheck(){
   if(!text.trim()){ v.textContent="—"; v.className="state-na"; return; }
   checkTimer = setTimeout(() => checkText(text), 500);
 }
+function useLlm(){ return document.getElementById("useLlm").checked; }
+async function refreshKimiKey(){
+  try{
+    const r = await api("/api/config/kimi-key");
+    const el = document.getElementById("kimiKeyState");
+    if(r.configured){ el.textContent = "key 已配置(页面,尾号"+r.tail+")"; el.className="state-ok"; }
+    else if(r.source==="env"){ el.textContent = "key 来自环境变量"; el.className="state-ok"; }
+    else { el.textContent = "未配置(勾选Kimi前请先点左键设置)"; el.className="state-warn"; }
+  }catch(e){}
+}
+async function configKimiKey(){
+  const input = window.prompt(
+    "粘贴 Moonshot API Key（只存本 web 进程内存,不写盘不入账本；留空=清除）","");
+  if(input === null) return;  // 取消
+  const r = await api("/api/config/kimi-key", {key: input.trim()});
+  refreshKimiKey();
+}
+function parserTag(p){ return p==="kimi" ? "Kimi理解" : "规则解析"; }
+function formatMatched(list){
+  if(!list || !list.length) return "";
+  return "匹配结果: " + list.map(s=>{
+    const p = Object.entries(s.params||{}).map(([k,v])=>k+"="+v).join(",");
+    return s.skill + (p ? "("+p+")" : "");
+  }).join(" → ");
+}
+function showMatched(list){
+  document.getElementById("matched").textContent = formatMatched(list);
+}
+function showSuggest(list){
+  document.getElementById("suggest").textContent =
+    (list && list.length) ? "你是不是想说："+list.join(" / ") : "";
+}
 async function checkText(text){
   const v = document.getElementById("verdict");
+  v.title = "";
+  showSuggest(null); showMatched(null);
   try{
-    const r = await api("/api/check",{session:SESSION,text:text});
+    const r = await api("/api/check",{session:SESSION,text:text,use_llm:useLlm()});
     if(r.error){ v.textContent="会话未起"; v.className="state-na"; return; }
     if(r.handled==="stop_hint"){ v.textContent="停下:立即执行"; v.className="state-ok"; return; }
     if(r.handled==="rejected"){
-      v.textContent="✗ "+r.classification+": "+r.reason; v.className="state-bad"; return;
+      v.textContent="✗ 不可执行 ("+r.classification+")"; v.className="state-bad";
+      v.title = r.reason || "";  // 长原因收进悬停提示,详情见动作结果区
+      showSuggest(r.suggestions); return;
     }
     const resp = r.response||{};
     if(resp.status==="ok"){
       const n=(resp.steps||[]).length;
-      v.textContent="✓ 可执行 ("+n+"步)"; v.className="state-ok";
+      v.textContent="✓ 可执行 ("+n+"步,"+parserTag(r.parser)+")"; v.className="state-ok";
+      showMatched(r.matched);
     }else{
-      v.textContent="✗ "+(resp.classification||"")+": "+(resp.reason||"?");
+      v.textContent="✗ 不可执行 ("+(resp.classification||"rejected")+")";
       v.className = resp.status==="rejected" ? "state-bad" : "state-warn";
+      v.title = resp.reason || "";
+      showMatched(r.matched);  // 网关拒了也要看见 Kimi 匹配成了什么
     }
   }catch(e){ v.textContent="校验不可用"; v.className="state-na"; }
 }
@@ -190,7 +255,7 @@ async function refreshVideo(){
     box.innerHTML = c.clips.map(x=>
       `<div title="${c.dir}/${x.name}">${x.name} `+
       `<video src="/api/clip?session=${SESSION}&file=${encodeURIComponent(x.name)}&token=${TOKEN}" `+
-      `controls preload="none" style="max-width:480px;display:block"></video></div>`).join("");
+      `controls preload="none" style="display:block"></video></div>`).join("");
   }catch(e){}
 }
 async function refresh(){
@@ -203,19 +268,27 @@ async function refresh(){
     sst.className = cls(mstate||"");
     document.getElementById("progress").textContent = JSON.stringify(st,null,1);
     const sk = await api("/api/skills?session="+SESSION);
-    let rows = "<tr><th>skill</th><th>usage</th><th>evidence</th><th>可执行</th></tr>";
+    let rows = "<tr><th>skill</th><th>技能</th><th>说法</th><th>usage</th><th>evidence</th><th>可执行</th></tr>";
     for(const [k,v] of Object.entries(sk.skills||{}))
-      rows += `<tr><td>${k}</td><td class=${cls(v.usage_state)}>${v.usage_state}</td>`+
+      rows += `<tr><td>${k}</td><td>${v.zh||""}</td>`+
+        `<td style="font-size:.85em">${(v.phrases||[]).join("/")}</td>`+
+        `<td class=${cls(v.usage_state)}>${v.usage_state}</td>`+
         `<td class=${cls(v.evidence_state)}>${v.evidence_state}</td>`+
         `<td class=${cls(v.session_executable?"passed":"failed")}>${v.session_executable?"✓":"✗"}</td></tr>`;
-    document.getElementById("skills").innerHTML = "<table>"+rows+"</table>";
+    document.getElementById("skills").innerHTML =
+      '<div style="color:#888;font-size:.8em;margin-bottom:.5em">模型路径:<br>'+
+      Object.entries(sk.skills||{}).filter(([k,v])=>v.model)
+        .map(([k,v])=>`${k}: ${v.model}`).join("<br>")+"</div>"+
+      "<table>"+rows+"</table>";
     const h = await api("/api/history?n=30");
     document.getElementById("history").textContent = h.lines.join("\\n");
   }catch(e){}
 }
 async function say(){
   const text = document.getElementById("text").value;
-  const r = await api("/api/say",{session:SESSION,text:text,wait_result:true});
+  const r = await api("/api/say",{session:SESSION,text:text,wait_result:true,use_llm:useLlm()});
+  if(r.handled==="rejected") showSuggest(r.suggestions);
+  showMatched(r.matched);
   document.getElementById("gate").textContent = JSON.stringify(r.response||r);
   document.getElementById("result").textContent = JSON.stringify(r,null,1);
   refresh();
@@ -225,7 +298,7 @@ async function stop(){
   document.getElementById("result").textContent = JSON.stringify(r,null,1);
   refresh();
 }
-pickSession().then(() => { refresh(); refreshVideo();
+pickSession().then(() => { refresh(); refreshVideo(); refreshKimiKey();
   setInterval(refresh, 2000); setInterval(refreshVideo, 1000); });
 </script>
 """
@@ -270,6 +343,54 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):  # keep test output clean
         pass
+
+    # -- parsing (rule / Kimi toggle) --------------------------------------
+    def _kimi(self) -> KimiClient:
+        """Lazy KimiClient with a registry-grounded system prompt, rebuilt
+        whenever the registry file changes (skills panel == matching space).
+        A key set via /api/config/kimi-key takes precedence over env vars."""
+        from .intent import build_system_prompt
+        if self.server.kimi is None:
+            self.server.kimi = KimiClient(api_key=self.server.kimi_key)
+        registry_path = self.server.registry_path
+        mtime = registry_path.stat().st_mtime if registry_path.is_file() else None
+        if getattr(self.server, "_kimi_prompt_mtime", None) != mtime:
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            self.server.kimi.system_prompt = build_system_prompt(registry)
+            self.server._kimi_prompt_mtime = mtime
+        return self.server.kimi
+
+    def _parse_text(self, text: str, use_llm: bool) -> tuple[object | None, dict | None, str]:
+        """(proposal, error_payload, parser_used).
+
+        use_llm 选中：Kimi 先解析；provider 故障（无 key/超时）回退规则解析,
+        理解性拒绝（capability_gap 等）不回退——LLM 的判决就是答案。
+        未选中：仅规则。两条路都失败时附"你是不是想说"建议。
+        """
+        kimi_error = None
+        if use_llm:
+            try:
+                return self._kimi().parse(text), None, "kimi"
+            except ProposalError as exc:
+                if exc.classification != "provider_error":
+                    return None, {
+                        "handled": "rejected", "classification": exc.classification,
+                        "reason": exc.reason, "parser": "kimi",
+                        "suggestions": suggest_phrases(text),
+                    }, "kimi"
+                kimi_error = exc  # 无 key/超时等: 回退规则
+        try:
+            proposal = SequenceParser().parse(text)
+            return proposal, None, "rule"
+        except ProposalError as exc:
+            payload = {
+                "handled": "rejected", "classification": exc.classification,
+                "reason": exc.reason, "parser": "rule",
+                "suggestions": suggest_phrases(text),
+            }
+            if kimi_error is not None:
+                payload["note"] = f"Kimi 不可用已回退规则解析: {kimi_error.reason}"
+            return None, payload, "rule"
 
     # -- GET --------------------------------------------------------------------
     def do_GET(self):
@@ -339,6 +460,9 @@ class Handler(BaseHTTPRequestHandler):
                     "evidence_state": record.get("evidence_state"),
                     "encoding": encoding,
                     "session_executable": executable,
+                    "zh": SKILL_ZH.get(skill, ""),
+                    "phrases": skill_phrase_variants(skill),
+                    "model": model,
                 }
             self._send(200, {"skills": skills})
             return
@@ -389,6 +513,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, {"error": "no preview frame"})
                 return
             self._send(200, frame.read_bytes(), "image/jpeg")
+            return
+        if parsed.path == "/api/config/kimi-key":
+            key = self.server.kimi_key
+            self._send(200, {
+                "configured": bool(key),
+                "tail": key[-4:] if key else "",
+                "source": "page" if key else ("env" if _env_kimi_key() else "none"),
+            })
             return
         self._send(404, {"error": "unknown path"})
 
@@ -481,12 +613,23 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_body()
         if body is None:
             return
+        path = urlparse(self.path).path
+        if path == "/api/config/kimi-key":
+            # 页内配置 Moonshot key: 只进 web 进程内存,不落盘、不入账本、
+            # 不进请求文件（与既有安全红线一致）。空串 = 清除。
+            key = str(body.get("key", "")).strip()
+            self.server.kimi_key = key or None
+            self.server.kimi = None  # 下次 use_llm 请求时用新 key 重建
+            self._send(200, {
+                "configured": bool(key),
+                "tail": key[-4:] if key else "",
+            })
+            return
         name = body.get("session", "sim01")
         sdir = session_dir(name, self.server.sessions_root)
         if not (sdir / "session.json").is_file():
             self._send(404, {"error": f"session {name!r} not found"})
             return
-        path = urlparse(self.path).path
         # 停止是独立路径: 不解析、不排队、不等 LLM
         if path == "/api/stop":
             mode = body.get("mode", "stop_skill")
@@ -507,20 +650,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"handled": "stop_hint",
                                  "note": "停止短语,发送即立即执行"})
                 return
-            try:
-                proposal = SequenceParser().parse(text)  # 本地规则,无 LLM
-            except ProposalError as exc:
-                self._send(200, {"handled": "rejected",
-                                 "classification": exc.classification,
-                                 "reason": exc.reason})
+            proposal, error, parser_used = self._parse_text(
+                text, bool(body.get("use_llm")))
+            if error is not None:
+                self._send(200, error)
                 return
             request_id = _write_request(sdir, {
-                "op": "check", "source": "web", "raw_text": text,
+                "op": "check", "source": parser_used, "raw_text": text,
                 "proposal_id": proposal.proposal_id,
                 "steps": [step.to_dict() for step in proposal.steps],
             })
             response = _wait_response(sdir, request_id, timeout_s=10.0)
-            self._send(200, {"handled": "checked", "response": response})
+            self._send(200, {"handled": "checked", "parser": parser_used,
+                             "matched": [step.to_dict() for step in proposal.steps],
+                             "response": response})
             return
         if path == "/api/say":
             text = str(body.get("text", ""))
@@ -533,15 +676,13 @@ class Handler(BaseHTTPRequestHandler):
                 response = _wait_response(sdir, request_id, timeout_s=30.0)
                 self._send(200, {"handled": "stop", "response": response})
                 return
-            try:
-                proposal = SequenceParser().parse(text)  # 本地规则,无 LLM
-            except ProposalError as exc:
-                self._send(200, {"handled": "rejected",
-                                 "classification": exc.classification,
-                                 "reason": exc.reason})
+            proposal, error, parser_used = self._parse_text(
+                text, bool(body.get("use_llm")))
+            if error is not None:
+                self._send(200, error)
                 return
             request_id = _write_request(sdir, {
-                "op": "sequence", "source": "rule", "raw_text": text,
+                "op": "sequence", "source": parser_used, "raw_text": text,
                 "proposal_id": proposal.proposal_id,
                 "steps": [step.to_dict() for step in proposal.steps],
             })
@@ -549,7 +690,9 @@ class Handler(BaseHTTPRequestHandler):
             response = _wait_response(
                 sdir, request_id, timeout_s=float(body.get("timeout_s", 120)),
                 wait_result=wait_result)
-            self._send(200, {"handled": "submitted", "response": response})
+            self._send(200, {"handled": "submitted", "parser": parser_used,
+                             "matched": [step.to_dict() for step in proposal.steps],
+                             "response": response})
             return
         if path == "/api/run":
             skill = str(body.get("skill", ""))
@@ -584,6 +727,8 @@ def make_server(
     server.ledger_path = Path(
         ledger_path or PROJECT_ROOT / "work/language_control/events.jsonl")
     server.asr = None  # lazily loaded on the first /api/voice request
+    server.kimi = None  # lazily constructed on the first use_llm request
+    server.kimi_key = None  # in-memory only (set via /api/config/kimi-key)
     server.keep_audio = keep_audio
     return server
 

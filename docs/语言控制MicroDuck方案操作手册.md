@@ -150,13 +150,21 @@ flowchart TD
 6. **会话自动选择 + 切换栏**：`GET /api/sessions` 按 mtime 列出全部会话；页面 URL 不带 `session=` 时自动连最新 running/paused 会话（此前默认死连 `sim01`，用户实测踩坑：盯着已取消的旧会话报"无预览帧/session is cancelled"）。顶部"会话"栏可手动切换并显示实时状态，不用改 URL。
 7. **片段面板只展示本次会话**：`session start` 清理陈旧协议文件时，同名旧会话的 `session.mp4`、`latest.jpg(.tmp)`、`clips/*.mp4` 一并删除（回归测试 `test_start_clears_stale_video_artifacts` 锁定）。**要留存的片段必须在重开同名会话前复制走**。`/api/clips` 返回片段目录绝对路径，面板顶部显示，悬停片段可见完整路径。
 8. 输入框加高（3em→7em）。完整使用说明单独立文：`docs/语言控制MicroDuckWeb操作指南.md`（语音方案文档第三节已互链）。
+9. **布局（2026-11-01 用户反馈迭代）**：页面 max-width 960→1600px 消除右侧留白；**提案/网关与技能面板并排**（flex 行，左输入右技能表，便于对照 ✓ 拼组合指令）；会话输入框 24em；仿真画面视窗先升 960px 后应用户要求定档 480px。技能面板结构：**模型路径列表在表格上方**（逐技能 model.path，stop 内置无模型跳过）；表格六列：skill | 技能（中文名，`intent.SKILL_ZH` 单一事实源）| 说法（WHITELIST 按技能反查，`skill_phrase_variants()`，**带参数标注**如 `向后走(后退0.15m/s)`）| usage | evidence | 可执行。
+10. **轻量补强（2026-11-01）**：stand evidence 升 passed（详见"已知缺口"节同名牌条目与技能落位终表）；解析器新增 20+ 口语同义词（语音场景，`test_colloquial_aliases` 16 子测试锁定，全部映射到既有受控技能，不新增技能）；kick 契约 partial 根因（上游 manifest 无 command 块）、crouch 缺口（play 脚本无 action_scale/roller 参数）、alpha_walking/roller 两模型未注册，均已诊断记录。
+11. **Web 接 Kimi + 建议层（2026-11-01）**：/api/check 与 /api/say 共用 `_parse_text`——勾选 Kimi 开关后 **Kimi 先解析**；provider 故障（无 key/超时）静默回退规则解析（响应附 note），理解性拒绝（capability_gap 等）不回退（LLM 的判决即答案）；未勾选仅规则。响应带 `parser: kimi|rule`，前端标注"Kimi理解/规则解析"。**LLM 仍在提案层，网关/会话校验不变，安全架构不动**。解析失败附 `suggestions`（`intent.suggest_phrases()` difflib 对 WHITELIST 匹配，如"向后推"→向后走/退后/后退），只建议不执行。按钮布局：2.语音 在上；3.发送并规则解析 在下，Kimi 开关"1.选中则使用Kimi模型解析/或规则匹配"在其右侧隔 6 空格。测试：建议层断言、无 key 回退规则、env-gated Kimi live（同 CLI 口径）。注意 Kimi 调用计入实时 check（500ms 防抖），勾选后每次输入停顿可能产生一次 API 调用与数秒延迟。
+12. **Kimi 注册表接地（2026-11-01，根治"匹配不起来"）**：原 SYSTEM_PROMPT 是 M0 静态清单（限单步、拒距离/时长、无 walk_backward）。现 `intent.build_system_prompt(registry)` 从**活注册表**构建 prompt：技能名/中文名/说法/编码/usage/evidence 与技能面板同一份数据，非 available 技能标注诚实拒绝；web 端按注册表 mtime 缓存重建（`web._kimi()`）。schema `maxItems` 1→8、`proposal_from_llm_payload` `max_steps=8`，**多步序列与参数（vx/vy/yaw/sim_duration_s/闭环 distance_m/turn_deg）全部放开给 LLM 提取**，三层校验（schema/网关/会话静态）卡控不变。响应新增 `matched`（每步技能+参数），前端显示"匹配结果: walk(vx=0.15,sim_duration_s=2) → stand"供发送前审计。测试 `GroundedPromptTests`（prompt 含 walk_backward/后退/NOT available 标注；多步 payload 解析）。
+13. **walk_backward 时长修复（2026-11-01 用户实测发现）**：`_DURATION_SKILLS` 漏加 walk_backward，"向后走两秒"被误拒（capability_gap）；已修为 `("walk", "walk_backward", "stand")`。同时修建议层跑偏：带时长后缀输入先剥后缀再 difflib（"向后推两秒"→向后走/退后/后退，不再出"捡东西"）。教训：**新技能注册后必须 grep 全代码库的技能名清单类常量**（_DURATION_SKILLS、builder 特例、面板映射），注册表数据驱动不到的地方就是漏网点。
+14. **页内 Kimi key 配置（2026-11-01）**：`export MOONSHOT_API_KEY=...` 按钮（控制区最上方）→ `POST /api/config/kimi-key`——key **只存 web 进程内存，不落盘、不入账本、不进请求文件**（测试断言 rglob 全目录无泄漏）；空串清除；页面配置优先于环境变量；`GET /api/config/kimi-key` 返回 configured/尾号/source(page|env|none)。配置端点在会话存在性检查之前（无会话也能配）。
+15. **校验显示迭代（2026-11-01 用户反馈）**：「可执行性」改名「**网关校验(规则判定)**」，压缩为一行短结论（✓ 可执行(n步,解析源) / ✗ 不可执行(分类)），长原因收进悬停 title，完整细节在动作结果区；「匹配结果」行提升为主输出，**网关拒绝时也显示**（对照"Kimi 听懂了什么 vs 网关为什么拦"）。
 
 ## 技能落位终表（M1+M2 后）
 
 | 技能 | 模型(hash 前8) | 编码 | usage | evidence | 会话可执行 | 备注 |
 |---|---|---|---|---|---|---|
 | walk | velstand ce894d30 | velocity | available | passed（M0-B + M2 重评 sim_smoke_passed） | ✓ | M1 会话主策略 |
-| stand | alpha_stand 15692687 | velocity(zero) | registered | unknown | ✓（同策略零指令切换，落 velstand） | 修正：非跨模型 |
+| walk_backward | velstand ce894d30 | velocity | available | passed（2026-11-01 vx=-0.15 真实核验） | ✓ | walk 的后退变体独立成技：位移 -0.119m、speed ratio 0.678、横向 ~0 |
+| stand | alpha_stand 15692687 | velocity(zero) | registered | **passed**（2026-11-01 velstand 零指令核验，sim_smoke_passed） | ✓（同策略零指令切换，落 velstand） | 核验的是 velstand 零速切换机制；alpha_stand.onnx 本体未单独验 |
 | ground_pick | alpha_ground_pick ffbf5109 | phase(4.0×0.7) | available | passed（M0-B + M2 重评） | ✗（phase 编码会话未启用） | M0-B scope 限定 |
 | sitdown/standup | alpha_sitstand a6f102d9 | posture_flag | registered | pending | ✗ | M2 核验：sitdown 末段含 reset 拼接；standup 从站立出发不构成起立 |
 | roulade | roulade 3d60da08 | constant | registered | pending | ✗ | M2 核验：真实旋转 0.762 圈但 done_count=4 → process_only |
@@ -175,13 +183,14 @@ flowchart TD
 - **M2 通过（限仿真范围）**：四家族评价器 + 正例重评 + 6 类反例；五家族核验回放：kick 双通过（sim_smoke_passed），sitdown/standup/roulade 如实保持 pending；单次通过一律 sim_smoke_passed。
 - **§3.6 move_distance 通过（限仿真）**：0.3m 终点误差 0.0077m；原地转向未验证（如实标注）。
 - **Web 通过（本地原型）**：三入口同服务；停止独立可达；不宣传为生产安全方案。
-- 回归：全套 unittest discover **218 例**（M0 时 141），仅既有 `test_dance_slope_terrain` import error + 2 个 env-gated skip。
+- 回归：全套 pytest **241 passed + 3 env-gated skip + 102 subtests**（2026-11-01；M0 时 141），仅既有 `test_dance_slope_terrain` import error（`--ignore` 排除）。
 
 ## 已知缺口
 
 - ~~Kimi 端点未实测~~ **已实测（2026-10-28）**：默认模型从已下线的 `kimi-k2-0905-preview` 改为 `kimi-k3`（可用 `KIMI_LC_MODEL` 覆盖）；kimi-k3 仅接受 temperature=1，客户端 400 时自动降级（`KIMI_LC_TEMPERATURE` 可覆盖）。实测结果：**strict JSON Schema 支持=是**；"翻跟头"→roulade、"不要翻跟头"→stop（否定正确）、"先蹲下再站起来"→capability_gap（两技能均 registered，不放行不猜测）、"给我跳个舞"→dance_side_step（网关仍按 experimental+failed 拦截执行）。长句偶发 20s 超时（REQUEST_TIMEOUT_S，可按需调大）。密钥仅经环境变量传入，不落盘、不入账、不进子进程。
 - **velstand 站立不动吸引子**：本 Isaac 配置下不能从已稳定站立平衡起步/原地转向；会话内"站立→再行走"经用户实测**确认无效**（修复记录 11）；move_distance 仅限首命令从 step 0 起步的会话。
 - vy/yaw 纯横向/转向命令的航向证据需 trace 支持（当前保守降级 insufficient_data）。
+- **轻量补强（2026-11-01）**：stand evidence 升 passed（velstand 零指令真实回放，均速 0.0133 m/s、done_count=0，范围限定）；**walk_backward 独立成技并晋升 available+passed**（后退系说法从 walk 拆出，vx=-0.15 真实核验：位移 -0.119m、ratio 0.678、横向 ~0、done_count=0；builder velstand 契约特例同步扩展）；解析器新增 20+ 口语同义词（走路/朝前走/站定/打个滚/踢左腿/停住/别走了等，语音场景）；诊断结论——kick 契约 partial 的根因是上游 manifest 无 command 块（builder 对本地声明一律标 unverified），crouch 缺口是 play 脚本无 action_scale/roller 参数，alpha_walking.onnx 与 roller.onnx 两个模型从未注册技能（roller 同样要 action_scale=0.8 支持）。
 - M1-C 真实跨模型切换、M3 真机边界：另立项。
 - dance V4 保持 experimental+failed，整改需另行立项。
 

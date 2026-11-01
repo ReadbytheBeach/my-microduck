@@ -91,6 +91,19 @@ class WebTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertTrue(payload["skills"]["walk"]["session_executable"])
         self.assertFalse(payload["skills"]["crouch"]["session_executable"])
+        # 中文名列 + 说法列（2026-11-01）；带参数的说法有方向/数值标注
+        walk = payload["skills"]["walk"]
+        self.assertEqual(walk["zh"], "行走")
+        self.assertIn("向前走(前进0.15m/s)", walk["phrases"])
+        self.assertIn("原地走", walk["phrases"])  # 无参数原样
+        self.assertTrue(walk["model"].endswith("policies/v7/velstand.onnx"))
+        self.assertIsNone(payload["skills"]["stop"]["model"])  # 内置技能无模型
+        # 后退独立成技（2026-11-01）：自己的行/说法列/会话可执行
+        wb = payload["skills"]["walk_backward"]
+        self.assertEqual(wb["zh"], "后退")
+        self.assertIn("向后走(后退0.15m/s)", wb["phrases"])
+        self.assertNotIn("向后走(后退0.15m/s)", walk["phrases"])
+        self.assertTrue(wb["session_executable"])
 
     def test_say_sequence_via_web(self):
         code, payload = self.call("/api/say", {
@@ -149,6 +162,76 @@ class WebTests(unittest.TestCase):
         # check 不产生任何执行痕迹: command.json 状态不变
         self.assertFalse(command_existed_before)
         self.assertFalse((self.tmp_path / "web" / "command.json").exists())
+
+    def test_check_suggestions_on_reject(self):
+        # 解析失败附"你是不是想说"建议（语音错字场景）
+        code, payload = self.call("/api/check", {
+            "session": "web", "text": "向后推",
+        })
+        self.assertEqual(code, 200)
+        self.assertEqual(payload["handled"], "rejected")
+        self.assertIn("向后走", payload["suggestions"])
+
+    def test_use_llm_without_key_falls_back_to_rule(self):
+        # 选中 Kimi 但无 key: provider_error 回退规则解析,结果标注 parser=rule
+        import os
+        from unittest import mock
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("KIMI_LC_API_KEY", "MOONSHOT_API_KEY")}
+        self.server.kimi = None
+        with mock.patch.dict(os.environ, env, clear=True):
+            code, payload = self.call("/api/check", {
+                "session": "web", "text": "向前走两秒", "use_llm": True,
+            })
+        self.assertEqual(code, 200)
+        self.assertEqual(payload["handled"], "checked")
+        self.assertEqual(payload["parser"], "rule")
+        self.assertEqual(payload["response"]["status"], "ok")
+        self.server.kimi = None
+
+    @unittest.skipUnless(
+        __import__("os").environ.get("MOONSHOT_API_KEY")
+        or __import__("os").environ.get("KIMI_LC_API_KEY"),
+        "Kimi key not set",
+    )
+    def test_use_llm_live_kimi_parses(self):
+        # 有 key 时选中 Kimi: 自由表述由模型理解,网关卡控不变
+        self.server.kimi = None
+        code, payload = self.call("/api/check", {
+            "session": "web", "text": "麻烦你往前挪动两秒钟", "use_llm": True,
+        })
+        self.assertEqual(code, 200)
+        self.assertEqual(payload.get("parser"), "kimi")
+        self.assertIn(payload["handled"], ("checked", "rejected"))
+        # "先蹲下再站起来" 应诚实拒(两技能 registered),不猜不放行
+        code, payload = self.call("/api/check", {
+            "session": "web", "text": "先蹲下再站起来", "use_llm": True,
+        })
+        self.assertEqual(payload["handled"], "rejected")
+        self.server.kimi = None
+
+    def test_kimi_key_config_in_memory_only(self):
+        secret = "sk-test-abcdef1234567890"
+        # 未配置时的状态
+        code, payload = self.call("/api/config/kimi-key")
+        self.assertEqual(code, 200)
+        self.assertFalse(payload["configured"])
+        # 设置（无需会话）→ 状态可见尾号
+        code, payload = self.call("/api/config/kimi-key", {"key": secret})
+        self.assertEqual(code, 200)
+        self.assertTrue(payload["configured"])
+        self.assertEqual(payload["tail"], "7890")
+        code, payload = self.call("/api/config/kimi-key")
+        self.assertTrue(payload["configured"])
+        self.assertEqual(payload["source"], "page")
+        # key 不落盘、不入账本
+        self.assertNotIn(secret, (self.tmp_path / "events-web.jsonl").read_text(
+            encoding="utf-8"))
+        for leaked in self.tmp_path.rglob("*.json"):
+            self.assertNotIn(secret, leaked.read_text(encoding="utf-8"))
+        # 空串清除
+        code, payload = self.call("/api/config/kimi-key", {"key": ""})
+        self.assertFalse(payload["configured"])
 
     def test_clip_and_frame_endpoints(self):
         code, payload = self.call("/api/clips?session=web")

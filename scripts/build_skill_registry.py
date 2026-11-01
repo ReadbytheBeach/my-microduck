@@ -127,7 +127,9 @@ def build_contract(skill: str, local: dict, manifest_entry: dict | None) -> dict
             verified=False,
         )
 
-    if encoding == "velocity" and skill == "walk":
+    if encoding == "velocity" and skill in ("walk", "walk_backward"):
+        # walk_backward shares the velstand policy with walk (vx<0 variant);
+        # the same manifest evidence covers its command contract
         description = (manifest_entry or {}).get("description", "")
         task_id = (manifest_entry or {}).get("training", {}).get("task_id", "")
         if "walk" in description.lower() or "VelStand" in task_id:

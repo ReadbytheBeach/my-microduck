@@ -101,13 +101,15 @@ class RegistryConsistencyTests(unittest.TestCase):
 
     def test_eleven_skills_no_padding(self):
         skills = self.registry["skills"]
+        # 2026-11-01: +walk_backward（walk 的后退变体独立成技,available+passed）
         self.assertEqual(
             sorted(skills),
-            sorted(["walk", "stand", "sitdown", "standup", "roulade", "kick_left",
-                    "kick_right", "crouch", "ground_pick", "dance_side_step", "stop"]),
+            sorted(["walk", "walk_backward", "stand", "sitdown", "standup",
+                    "roulade", "kick_left", "kick_right", "crouch", "ground_pick",
+                    "dance_side_step", "stop"]),
         )
         counts = self.registry["counts"]
-        self.assertEqual(counts["skills"], 11)
+        self.assertEqual(counts["skills"], 12)
         # model file count, skill count, enabled count are separate numbers
         self.assertEqual(counts["model_files"], 12)  # 10 v7 + dance V4 + legacy sitstand
         self.assertLessEqual(counts["skills_available"], counts["skills"])
@@ -125,13 +127,17 @@ class RegistryConsistencyTests(unittest.TestCase):
         self.assertEqual(skills["sitdown"]["usage_state"], "registered")
         self.assertEqual(skills["standup"]["evidence_state"], "pending")
         # M0-B verified skills promoted to available with passed evidence
-        for name in ("walk", "ground_pick"):
+        # (walk_backward: 2026-11-01 vx=-0.15 真实核验通过后晋升)
+        for name in ("walk", "walk_backward", "ground_pick"):
             self.assertEqual(skills[name]["usage_state"], "available", name)
             self.assertEqual(skills[name]["evidence_state"], "passed", name)
             self.assertEqual(skills[name]["contract_status"], "verified", name)
         for name in ("stand", "crouch"):
             self.assertEqual(skills[name]["usage_state"], "registered", name)
-            self.assertEqual(skills[name]["evidence_state"], "unknown", name)
+        # 2026-11-01: stand 零速切换真实核验通过(velstand,scope 限定);
+        # alpha_stand.onnx 本体未验,usage 保持 registered
+        self.assertEqual(skills["stand"]["evidence_state"], "passed")
+        self.assertEqual(skills["crouch"]["evidence_state"], "unknown")
         # M2 核验回放后: roulade 有真实旋转但 done_count=4 -> pending;
         # kick 指定腿轨迹通过(sim_smoke_passed)但契约 partial -> 保持 registered
         self.assertEqual(skills["roulade"]["evidence_state"], "pending")
@@ -231,6 +237,41 @@ class RuleParserTests(unittest.TestCase):
         self.assertEqual(proposal.steps[0].params, {"vx": 0.15})
         self.assertEqual(self.parser.parse("蹲下").steps[0].skill, "crouch")
         self.assertEqual(self.parser.parse("站起来").steps[0].skill, "standup")
+
+    def test_colloquial_aliases(self):
+        """2026-11-01 语音场景扩充的口语同义词,映射到同一受控技能."""
+        cases = {
+            "走路": ("walk", {"vx": 0.15}),
+            "朝前走": ("walk", {"vx": 0.15}),
+            "往后走": ("walk_backward", {"vx": -0.15}),
+            "退后": ("walk_backward", {"vx": -0.15}),
+            "往左走": ("walk", {"vy": 0.15}),
+            "向右转": ("walk", {"yaw": -0.5}),
+            "站定": ("stand", {}),
+            "站着别动": ("stand", {}),
+            "坐下去": ("sitdown", {}),
+            "起来": ("standup", {}),
+            "打个滚": ("roulade", {}),
+            "踢左腿": ("kick_left", {}),
+            "踢右腿": ("kick_right", {}),
+            "下蹲": ("crouch", {}),
+            "把东西捡起来": ("ground_pick", {}),
+            "停住": ("stop", {}),
+            "别走了": ("stop", {}),
+        }
+        for text, (skill, params) in cases.items():
+            with self.subTest(text=text):
+                step = self.parser.parse(text).steps[0]
+                self.assertEqual((step.skill, step.params), (skill, params))
+
+    def test_walk_backward_duration(self):
+        """walk_backward 与 walk 一样接受显式时长（序列解析器）."""
+        from language_control.intent import SequenceParser
+        step = SequenceParser().parse("向后走两秒").steps[0]
+        self.assertEqual(
+            (step.skill, step.params),
+            ("walk_backward", {"vx": -0.15, "sim_duration_s": 2.0}),
+        )
 
     def test_negation_never_executes(self):
         with self.assertRaises(ProposalError) as ctx:
@@ -369,6 +410,47 @@ class KimiClientTests(unittest.TestCase):
         self.assertEqual(result.classification, "capability_gap")
 
 
+class SuggestionTests(unittest.TestCase):
+    """"你是不是想说"建议层: 带时长后缀的输入剥后缀再匹配."""
+
+    def test_duration_suffix_stripped_before_matching(self):
+        from language_control.intent import suggest_phrases
+        suggestions = suggest_phrases("向后推两秒")
+        self.assertIn("向后走", suggestions)
+        self.assertNotIn("捡东西", suggestions)
+
+
+class GroundedPromptTests(unittest.TestCase):
+    """2026-11-01: Kimi 技能匹配的注册表接地 prompt + 多步提案."""
+
+    def test_prompt_mirrors_registry(self):
+        from language_control.intent import build_system_prompt
+        registry = load_registry()
+        prompt = build_system_prompt(registry)
+        # 技能面板同一份数据: 新技能与中文名自动进入
+        self.assertIn("walk_backward", prompt)
+        self.assertIn("后退", prompt)
+        # 不可用技能标注诚实拒绝
+        self.assertIn("NOT available", prompt)
+        crouch_line = next(l for l in prompt.splitlines() if l.startswith("- crouch"))
+        self.assertIn("NOT available", crouch_line)
+        # 多步序列 + 参数规则
+        self.assertIn("1-8 steps", prompt)
+        self.assertIn("sim_duration_s", prompt)
+
+    def test_llm_payload_multi_step(self):
+        payload = json.dumps({
+            "target": "sim",
+            "steps": [
+                {"skill": "walk", "params": {"vx": 0.15, "sim_duration_s": 2.0}},
+                {"skill": "stand", "params": {}},
+            ],
+        })
+        proposal = proposal_from_llm_payload(payload, raw_text="走两秒然后站住")
+        self.assertEqual(len(proposal.steps), 2)
+        self.assertEqual(proposal.steps[1].skill, "stand")
+
+
 class GatewayLimitTests(unittest.TestCase):
     """三类编码各自正确且不互通限值."""
 
@@ -442,10 +524,11 @@ class GatewayLimitTests(unittest.TestCase):
     def test_unknown_research_replay_is_bootstrap_path(self):
         # M0-B verification replays of registered+unknown skills run under
         # an explicit research flag, with the label retained.
-        plain = self.gateway.check(make_proposal("stand", {}), execute=True)
+        # (crouch: registered+unknown since stand was verified on 2026-11-01)
+        plain = self.gateway.check(make_proposal("crouch", {}), execute=True)
         self.assertFalse(plain.allowed)
         research = Gateway(self.registry, research=True)
-        allowed = research.check(make_proposal("stand", {}), execute=True)
+        allowed = research.check(make_proposal("crouch", {}), execute=True)
         self.assertTrue(allowed.allowed, allowed.reason)
         self.assertTrue(allowed.labels.get("research_replay"))
         self.assertEqual(allowed.labels.get("evidence_state"), "unknown")
